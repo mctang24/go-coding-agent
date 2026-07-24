@@ -13,7 +13,6 @@ func (client *DeepSeekClient) GenerateResponse(ctx context.Context, request agen
 	if err != nil {
 		return nil, err
 	}
-
 	definitions := make([]toolDefinition, 0, len(request.Tools))
 	for _, tool := range request.Tools {
 		definitions = append(definitions, toolDefinition{
@@ -136,7 +135,10 @@ func (stream *modelStream) Recv() (agent.ModelStreamEvent, error) {
 		})
 	}
 
-	finalResponse := agent.ModelResponse{Message: output}
+	finalResponse := agent.ModelResponse{
+		Message: output,
+		Usage:   response.Usage,
+	}
 	return agent.ModelStreamEvent{Response: &finalResponse}, nil
 }
 

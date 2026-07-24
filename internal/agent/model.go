@@ -30,6 +30,7 @@ type ModelRequest struct {
 
 type ModelResponse struct {
 	Message Message
+	Usage   TokenUsage
 }
 
 type Message struct {

@@ -64,6 +64,7 @@ func TestGenerateResponse(t *testing.T) {
 		}
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"finish_reason\":null,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"read it\",\"tool_calls\":[{\"index\":0,\"id\":\"call_2\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"finish_reason\":\"tool_calls\",\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"main.go\\\"}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":40,\"completion_tokens\":12,\"total_tokens\":52}}\n\n" +
 			"data: [DONE]\n\n"))
 	}))
 	defer server.Close()
@@ -90,6 +91,9 @@ func TestGenerateResponse(t *testing.T) {
 	}
 	if len(response.Message.ToolCalls) != 1 || response.Message.ToolCalls[0].Name != "read_file" {
 		t.Fatalf("tool calls = %#v, want read_file", response.Message.ToolCalls)
+	}
+	if response.Usage.TotalTokens != 52 {
+		t.Fatalf("total tokens = %d, want 52", response.Usage.TotalTokens)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(response.Message.RawMessage, &raw); err != nil {

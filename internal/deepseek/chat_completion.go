@@ -1,6 +1,7 @@
 package deepseek
 
 import (
+	"bare-agent/internal/agent"
 	"bare-agent/internal/tools"
 	"bufio"
 	"bytes"
@@ -40,6 +41,10 @@ type thinkingConfig struct {
 	Type string `json:"type"`
 }
 
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chatCompletionRequest) (*chatCompletionStream, error) {
 	if client.apiKey == "" {
 		return nil, fmt.Errorf("DeepSeek API key is empty")
@@ -54,12 +59,14 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 		Tools    []toolDefinition `json:"tools,omitempty"`
 		Thinking thinkingConfig   `json:"thinking"`
 		Stream   bool             `json:"stream"`
+		Options  streamOptions    `json:"stream_options"`
 	}{
 		Model:    client.model,
 		Messages: input.Messages,
 		Tools:    input.Tools,
 		Thinking: thinkingConfig{Type: "enabled"},
 		Stream:   true,
+		Options:  streamOptions{IncludeUsage: true},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek encode chat completion request: %w", err)
@@ -78,7 +85,7 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 		return nil, fmt.Errorf("DeepSeek send chat completion request: %w", err)
 	}
 	if httpResponse.StatusCode >= http.StatusOK && httpResponse.StatusCode < http.StatusMultipleChoices {
-		return newChatCompletionStream(httpResponse.Body), nil
+		return newChatCompletionStream(httpResponse.Body, (len(requestBody)+3)/4), nil
 	}
 	errorBody, err := io.ReadAll(httpResponse.Body)
 	_ = httpResponse.Body.Close()
@@ -107,6 +114,7 @@ type assistantMessage struct {
 }
 
 type chatCompletionChunk struct {
+	Usage   *agent.TokenUsage `json:"usage"`
 	Choices []struct {
 		FinishReason *string `json:"finish_reason"`
 		Delta        struct {
@@ -129,6 +137,7 @@ type chatCompletionChunk struct {
 type modelResponse struct {
 	Message      assistantMessage
 	FinishReason string
+	Usage        agent.TokenUsage
 }
 
 type chatCompletionStream struct {
@@ -149,10 +158,11 @@ type chatCompletionEvent struct {
 	Response  *modelResponse
 }
 
-func newChatCompletionStream(body io.ReadCloser) *chatCompletionStream {
+func newChatCompletionStream(body io.ReadCloser, fallbackPromptTokens int) *chatCompletionStream {
 	return &chatCompletionStream{
 		body:      body,
 		reader:    bufio.NewReader(body),
+		response:  modelResponse{Usage: agent.TokenUsage{PromptTokens: fallbackPromptTokens, TotalTokens: fallbackPromptTokens}},
 		toolCalls: map[int]*toolCall{},
 	}
 }
@@ -182,6 +192,9 @@ func (stream *chatCompletionStream) Recv() (chatCompletionEvent, error) {
 			var chunk chatCompletionChunk
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				return chatCompletionEvent{}, fmt.Errorf("DeepSeek decode chat completion stream: %w", err)
+			}
+			if chunk.Usage != nil {
+				stream.response.Usage = *chunk.Usage
 			}
 			for _, choice := range chunk.Choices {
 				if role := choice.Delta.Role; role != "" && role != "assistant" {

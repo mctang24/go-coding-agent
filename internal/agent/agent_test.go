@@ -346,6 +346,35 @@ func TestAgentRunContinuesConversation(t *testing.T) {
 	}
 }
 
+func TestAgentRunStoresTokenUsage(t *testing.T) {
+	model := &modelStub{responses: []ModelResponse{{
+		Message: Message{Role: "assistant", Content: "done"},
+		Usage:   TokenUsage{PromptTokens: 12, CompletionTokens: 3, TotalTokens: 15},
+	}}}
+	agent := Agent{model: model, maxTurns: 1}
+
+	if _, err := agent.Run(context.Background(), "question", nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if agent.tokenUsage != 15 {
+		t.Fatalf("token usage = %d, want 15", agent.tokenUsage)
+	}
+}
+
+func TestAgentRunClearsMissingTokenUsage(t *testing.T) {
+	model := &modelStub{
+		responses: []ModelResponse{{Message: Message{Role: "assistant", Content: "done"}}},
+	}
+	agent := Agent{model: model, maxTurns: 1, tokenUsage: 99}
+
+	if _, err := agent.Run(context.Background(), "question", nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if agent.tokenUsage != 0 {
+		t.Fatalf("token usage = %d, want unknown usage 0", agent.tokenUsage)
+	}
+}
+
 func TestAgentRunDiscardsFailedConversation(t *testing.T) {
 	model := &modelStub{responses: []ModelResponse{
 		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1"}}}},
@@ -369,9 +398,10 @@ func TestAgentRunDiscardsFailedConversation(t *testing.T) {
 func TestAgentRunDoesNotSavePartialStream(t *testing.T) {
 	modelErr := errors.New("stream failed")
 	agent := Agent{
-		model:    streamingErrorModel{err: modelErr},
-		maxTurns: 1,
-		messages: []Message{{Role: "user", Content: "keep"}},
+		model:      streamingErrorModel{err: modelErr},
+		maxTurns:   1,
+		messages:   []Message{{Role: "user", Content: "keep"}},
+		tokenUsage: 17,
 	}
 	var output strings.Builder
 
@@ -387,6 +417,9 @@ func TestAgentRunDoesNotSavePartialStream(t *testing.T) {
 	}
 	if len(agent.messages) != 1 || agent.messages[0].Content != "keep" {
 		t.Fatalf("messages = %#v, want original history", agent.messages)
+	}
+	if agent.tokenUsage != 17 {
+		t.Fatalf("token usage = %d, want original usage 17", agent.tokenUsage)
 	}
 }
 
@@ -425,6 +458,9 @@ func TestAgentResetTrace(t *testing.T) {
 	}
 	if len(agent.messages) != 0 || agent.sessionID == oldSessionID || !strings.HasPrefix(agent.sessionID, "session_") {
 		t.Fatalf("messages = %#v, session ID = %q", agent.messages, agent.sessionID)
+	}
+	if agent.tokenUsage != 0 {
+		t.Fatalf("token usage = %d, want 0", agent.tokenUsage)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

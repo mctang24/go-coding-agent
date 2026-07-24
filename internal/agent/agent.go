@@ -18,6 +18,7 @@ type Agent struct {
 	instructions   string
 	maxTurns       int
 	messages       []Message
+	tokenUsage     int
 	traceWriter    *trace.Writer
 	sessionID      string
 	workspaceTools *tools.WorkspaceTools
@@ -122,6 +123,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 		messages = append(messages, response.Message)
 		if len(response.Message.ToolCalls) == 0 {
 			agent.messages = messages
+			agent.tokenUsage = response.Usage.TotalTokens
 			return RunResult{Content: response.Message.Content}, nil
 		}
 		if turn+1 == agent.maxTurns {
@@ -251,6 +253,7 @@ func (agent *Agent) Reset() error {
 		}
 	}
 	agent.messages = nil
+	agent.tokenUsage = 0
 	if agent.workspaceTools != nil {
 		agent.workspaceTools.ResetReadState()
 	}
