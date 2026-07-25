@@ -16,6 +16,7 @@ import (
 
 type modelStub struct {
 	responses       []ModelResponse
+	errs            []error
 	requests        []ModelRequest
 	estimatedTokens int
 	estimateErr     error
@@ -85,6 +86,13 @@ func TestNewAgentErrors(t *testing.T) {
 
 func (stub *modelStub) GenerateResponse(_ context.Context, request ModelRequest) (ModelStream, error) {
 	stub.requests = append(stub.requests, request)
+	if len(stub.errs) > 0 {
+		err := stub.errs[0]
+		stub.errs = stub.errs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	response := stub.responses[0]
 	stub.responses = stub.responses[1:]
 	return &stubModelStream{response: response}, nil
@@ -158,6 +166,29 @@ func TestAgentRun(t *testing.T) {
 	toolMessage := model.requests[1].Messages[2]
 	if toolMessage.Role != "tool" || len(toolMessage.ToolResults) != 1 || toolMessage.ToolResults[0].Content != "result" {
 		t.Fatalf("tool message = %#v", toolMessage)
+	}
+}
+
+func TestAgentRunReturnsToolExecutionErrorToModel(t *testing.T) {
+	model := &modelStub{responses: []ModelResponse{
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "failing", Arguments: `{}`}}}},
+		{Message: Message{Role: "assistant", Content: "recovered"}},
+	}}
+	agent := Agent{
+		model:    model,
+		maxTurns: 2,
+		tools: []tools.Tool{{Name: "failing", Execute: func(context.Context, string, string) (string, error) {
+			return "", errors.New("tool failed")
+		}}},
+	}
+
+	result, err := agent.Run(context.Background(), "task", nil)
+	if err != nil || result.Content != "recovered" {
+		t.Fatalf("Run() = %#v, error = %v", result, err)
+	}
+	toolResults := model.requests[1].Messages[2].ToolResults
+	if len(toolResults) != 1 || !toolResults[0].IsError || !strings.Contains(toolResults[0].Content, "tool failed") {
+		t.Fatalf("tool results = %#v", toolResults)
 	}
 }
 
@@ -460,6 +491,31 @@ func TestAgentRunDiscardsFailedConversation(t *testing.T) {
 	messages := model.requests[1].Messages
 	if len(messages) != 1 || messages[0].Content != "new question" {
 		t.Fatalf("second request messages = %#v", messages)
+	}
+}
+
+func TestAgentRunDiscardsConversationWhenModelFailsAfterTool(t *testing.T) {
+	modelErr := errors.New("second request failed")
+	model := &modelStub{
+		responses: []ModelResponse{{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "echo", Arguments: `{}`}}}}},
+		errs:      []error{nil, modelErr},
+	}
+	agent := Agent{
+		model:      model,
+		maxTurns:   2,
+		messages:   []Message{{Role: "user", Content: "keep"}},
+		tokenUsage: 17,
+		tools: []tools.Tool{{Name: "echo", Execute: func(context.Context, string, string) (string, error) {
+			return "done", nil
+		}}},
+	}
+
+	_, err := agent.Run(context.Background(), "new question", nil)
+	if !errors.Is(err, modelErr) {
+		t.Fatalf("Run() error = %v, want model error", err)
+	}
+	if len(agent.messages) != 1 || agent.messages[0].Content != "keep" || agent.tokenUsage != 17 {
+		t.Fatalf("state changed: messages = %#v, token usage = %d", agent.messages, agent.tokenUsage)
 	}
 }
 
