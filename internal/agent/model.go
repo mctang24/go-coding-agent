@@ -3,7 +3,10 @@ package agent
 import (
 	"bare-agent/internal/tools"
 	"context"
+	"errors"
 )
+
+var ErrRateLimit = errors.New("model rate limit")
 
 // Model is the provider-independent interface used by Agent.
 type Model interface {

@@ -2,13 +2,19 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
+	"time"
 )
 
 const (
-	retainedTurns = 2
-	summaryPrefix = "较早对话摘要：\n"
+	retainedTurns       = 2
+	maxCompactAttempts  = 3
+	compactRetryBackoff = 100 * time.Millisecond
+	summaryPrefix       = "较早对话摘要：\n"
 )
 
 var summarySections = []string{
@@ -92,7 +98,7 @@ func (agent *Agent) Compact(ctx context.Context) error {
 			Content: summaryPrompt,
 		}),
 	}
-	response, err := agent.callModel(ctx, summaryRequest, nil, nil, 1)
+	response, err := agent.generateCompactSummary(ctx, summaryRequest)
 	if err != nil {
 		return fmt.Errorf("compact history: generate summary: %w", err)
 	}
@@ -128,6 +134,42 @@ func (agent *Agent) Compact(ctx context.Context) error {
 	agent.messages = messages
 	agent.tokenUsage = tokenUsage
 	return nil
+}
+
+func (agent *Agent) generateCompactSummary(ctx context.Context, request ModelRequest) (ModelResponse, error) {
+	for attempt := 1; attempt <= maxCompactAttempts; attempt++ {
+		response, err := agent.callModel(ctx, request, nil, nil, 1)
+		if err == nil {
+			return response, nil
+		}
+		if !shouldRetryCompact(err) || attempt == maxCompactAttempts {
+			return ModelResponse{}, err
+		}
+		if err := waitForCompactRetry(ctx, attempt); err != nil {
+			return ModelResponse{}, err
+		}
+	}
+	return ModelResponse{}, fmt.Errorf("compact history: retry limit exceeded")
+}
+
+func shouldRetryCompact(err error) bool {
+	if errors.Is(err, ErrRateLimit) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr)
+}
+
+func waitForCompactRetry(ctx context.Context, attempt int) error {
+	delay := compactRetryBackoff * time.Duration(1<<(attempt-1))
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func splitHistory(messages []Message) ([]Message, []Message) {

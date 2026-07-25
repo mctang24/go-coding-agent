@@ -87,7 +87,11 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek read chat completion error response: %w", err)
 	}
-	return nil, fmt.Errorf("DeepSeek chat completion returned %s: %s", httpResponse.Status, errorBody)
+	err = fmt.Errorf("DeepSeek chat completion returned %s: %s", httpResponse.Status, errorBody)
+	if httpResponse.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("%w: %v", agent.ErrRateLimit, err)
+	}
+	return nil, err
 }
 
 func (client *DeepSeekClient) encodeChatCompletionRequest(input chatCompletionRequest) ([]byte, error) {
@@ -239,7 +243,7 @@ func (stream *chatCompletionStream) Recv() (chatCompletionEvent, error) {
 			return chatCompletionEvent{TextDelta: text.String()}, nil
 		}
 		if readErr == io.EOF {
-			return chatCompletionEvent{}, fmt.Errorf("DeepSeek chat completion stream ended before [DONE]")
+			return chatCompletionEvent{}, fmt.Errorf("DeepSeek chat completion stream ended before [DONE]: %w", io.ErrUnexpectedEOF)
 		}
 	}
 }

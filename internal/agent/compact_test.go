@@ -107,6 +107,62 @@ func TestAgentCompactIncludesExistingSummary(t *testing.T) {
 	}
 }
 
+func TestAgentCompactRetriesTransientFailure(t *testing.T) {
+	model := &compactSequenceModel{
+		errs:            []error{ErrRateLimit},
+		responses:       []ModelResponse{{Message: Message{Role: "assistant", Content: validSummary()}}},
+		estimatedTokens: 50,
+	}
+	runner := Agent{model: model, messages: compactableHistory()}
+
+	if err := runner.Compact(context.Background()); err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("summary request count = %d, want 2", len(model.requests))
+	}
+	if runner.tokenUsage != 50 {
+		t.Fatalf("token usage = %d, want 50", runner.tokenUsage)
+	}
+}
+
+func TestAgentCompactStopsAfterThreeTransientFailures(t *testing.T) {
+	model := &compactSequenceModel{
+		errs: []error{
+			ErrRateLimit,
+			ErrRateLimit,
+			ErrRateLimit,
+		},
+	}
+	history := compactableHistory()
+	runner := Agent{model: model, messages: history, tokenUsage: 77}
+
+	err := runner.Compact(context.Background())
+	if err == nil || !errors.Is(err, ErrRateLimit) {
+		t.Fatalf("Compact() error = %v, want final transient error", err)
+	}
+	if len(model.requests) != 3 || runner.tokenUsage != 77 || len(runner.messages) != len(history) {
+		t.Fatalf("retry state = requests %d, token usage %d, messages %d", len(model.requests), runner.tokenUsage, len(runner.messages))
+	}
+}
+
+func TestAgentCompactCancellationStopsRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	model := &compactSequenceModel{
+		errs:         []error{ErrRateLimit},
+		cancelOnCall: cancel,
+	}
+	runner := Agent{model: model, messages: compactableHistory()}
+
+	err := runner.Compact(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Compact() error = %v, want context canceled", err)
+	}
+	if len(model.requests) != 1 {
+		t.Fatalf("summary request count = %d, want 1", len(model.requests))
+	}
+}
+
 func TestSplitHistoryDoesNotCountSummaryAsUserTurn(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: summaryPrefix + "existing summary"},
@@ -222,4 +278,34 @@ func compactableHistory() []Message {
 
 func validSummary() string {
 	return strings.Join(summarySections, "\n")
+}
+
+type compactSequenceModel struct {
+	errs            []error
+	responses       []ModelResponse
+	requests        []ModelRequest
+	estimatedTokens int
+	cancelOnCall    context.CancelFunc
+}
+
+func (model *compactSequenceModel) GenerateResponse(_ context.Context, request ModelRequest) (ModelStream, error) {
+	model.requests = append(model.requests, request)
+	if model.cancelOnCall != nil {
+		model.cancelOnCall()
+		model.cancelOnCall = nil
+	}
+	if len(model.errs) > 0 {
+		err := model.errs[0]
+		model.errs = model.errs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
+	response := model.responses[0]
+	model.responses = model.responses[1:]
+	return &stubModelStream{response: response}, nil
+}
+
+func (model *compactSequenceModel) EstimateRequestTokens(ModelRequest) (int, error) {
+	return model.estimatedTokens, nil
 }
