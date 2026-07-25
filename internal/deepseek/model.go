@@ -9,9 +9,35 @@ import (
 
 // GenerateResponse generates a response with DeepSeek.
 func (client *DeepSeekClient) GenerateResponse(ctx context.Context, request agent.ModelRequest) (agent.ModelStream, error) {
-	messages, err := convertMessages(request.Instructions, request.Messages)
+	input, err := convertRequest(request)
 	if err != nil {
 		return nil, err
+	}
+
+	stream, err := client.createChatCompletion(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return &modelStream{stream: stream}, nil
+}
+
+// EstimateRequestTokens estimates the serialized DeepSeek request size in tokens.
+func (client *DeepSeekClient) EstimateRequestTokens(request agent.ModelRequest) (int, error) {
+	input, err := convertRequest(request)
+	if err != nil {
+		return 0, err
+	}
+	requestBody, err := client.encodeChatCompletionRequest(input)
+	if err != nil {
+		return 0, err
+	}
+	return (len(requestBody) + 3) / 4, nil
+}
+
+func convertRequest(request agent.ModelRequest) (chatCompletionRequest, error) {
+	messages, err := convertMessages(request.Instructions, request.Messages)
+	if err != nil {
+		return chatCompletionRequest{}, err
 	}
 	definitions := make([]toolDefinition, 0, len(request.Tools))
 	for _, tool := range request.Tools {
@@ -24,12 +50,7 @@ func (client *DeepSeekClient) GenerateResponse(ctx context.Context, request agen
 			},
 		})
 	}
-
-	stream, err := client.createChatCompletion(ctx, chatCompletionRequest{Messages: messages, Tools: definitions})
-	if err != nil {
-		return nil, err
-	}
-	return &modelStream{stream: stream}, nil
+	return chatCompletionRequest{Messages: messages, Tools: definitions}, nil
 }
 
 func convertMessages(instructions string, inputs []agent.Message) ([]message, error) {

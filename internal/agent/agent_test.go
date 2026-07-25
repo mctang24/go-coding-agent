@@ -15,8 +15,12 @@ import (
 )
 
 type modelStub struct {
-	responses []ModelResponse
-	requests  []ModelRequest
+	responses       []ModelResponse
+	requests        []ModelRequest
+	estimatedTokens int
+	estimateErr     error
+	estimateCalls   int
+	estimateRequest ModelRequest
 }
 
 func TestAgentEnableTrace(t *testing.T) {
@@ -84,6 +88,12 @@ func (stub *modelStub) GenerateResponse(_ context.Context, request ModelRequest)
 	response := stub.responses[0]
 	stub.responses = stub.responses[1:]
 	return &stubModelStream{response: response}, nil
+}
+
+func (stub *modelStub) EstimateRequestTokens(request ModelRequest) (int, error) {
+	stub.estimateCalls++
+	stub.estimateRequest = request
+	return stub.estimatedTokens, stub.estimateErr
 }
 
 type stubModelStream struct {
@@ -359,11 +369,15 @@ func TestAgentRunStoresTokenUsage(t *testing.T) {
 	if agent.tokenUsage != 15 {
 		t.Fatalf("token usage = %d, want 15", agent.tokenUsage)
 	}
+	if model.estimateCalls != 0 {
+		t.Fatalf("estimate calls = %d, want 0", model.estimateCalls)
+	}
 }
 
 func TestAgentRunClearsMissingTokenUsage(t *testing.T) {
 	model := &modelStub{
-		responses: []ModelResponse{{Message: Message{Role: "assistant", Content: "done"}}},
+		responses:   []ModelResponse{{Message: Message{Role: "assistant", Content: "done"}}},
+		estimateErr: errors.New("estimate failed"),
 	}
 	agent := Agent{model: model, maxTurns: 1, tokenUsage: 99}
 
@@ -372,6 +386,28 @@ func TestAgentRunClearsMissingTokenUsage(t *testing.T) {
 	}
 	if agent.tokenUsage != 0 {
 		t.Fatalf("token usage = %d, want unknown usage 0", agent.tokenUsage)
+	}
+}
+
+func TestAgentRunUsesEstimatedTokenUsageWhenMissing(t *testing.T) {
+	model := &modelStub{
+		responses:       []ModelResponse{{Message: Message{Role: "assistant", Content: "done"}}},
+		estimatedTokens: 23,
+	}
+	agent := Agent{model: model, maxTurns: 1}
+
+	if _, err := agent.Run(context.Background(), "question", nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if agent.tokenUsage != 23 {
+		t.Fatalf("token usage = %d, want estimate 23", agent.tokenUsage)
+	}
+	if model.estimateCalls != 1 {
+		t.Fatalf("estimate calls = %d, want 1", model.estimateCalls)
+	}
+	messages := model.estimateRequest.Messages
+	if len(messages) != 2 || messages[1].Role != "assistant" || messages[1].Content != "done" {
+		t.Fatalf("estimated request messages = %#v, want committed user and assistant messages", messages)
 	}
 }
 
@@ -533,6 +569,10 @@ func (model errorModel) GenerateResponse(context.Context, ModelRequest) (ModelSt
 	return nil, model.err
 }
 
+func (model errorModel) EstimateRequestTokens(ModelRequest) (int, error) {
+	return 0, model.err
+}
+
 type streamingErrorModel struct {
 	err error
 }
@@ -542,4 +582,8 @@ func (model streamingErrorModel) GenerateResponse(context.Context, ModelRequest)
 		response: ModelResponse{Message: Message{Role: "assistant", Content: "partial"}},
 		err:      model.err,
 	}, nil
+}
+
+func (model streamingErrorModel) EstimateRequestTokens(ModelRequest) (int, error) {
+	return 0, model.err
 }

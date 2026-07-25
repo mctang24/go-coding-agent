@@ -122,8 +122,19 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 
 		messages = append(messages, response.Message)
 		if len(response.Message.ToolCalls) == 0 {
+			tokenUsage := response.Usage.TotalTokens
+			if tokenUsage == 0 {
+				estimatedTokens, estimateErr := agent.model.EstimateRequestTokens(ModelRequest{
+					Instructions: agent.instructions,
+					Messages:     messages,
+					Tools:        definitions,
+				})
+				if estimateErr == nil {
+					tokenUsage = estimatedTokens
+				}
+			}
 			agent.messages = messages
-			agent.tokenUsage = response.Usage.TotalTokens
+			agent.tokenUsage = tokenUsage
 			return RunResult{Content: response.Message.Content}, nil
 		}
 		if turn+1 == agent.maxTurns {

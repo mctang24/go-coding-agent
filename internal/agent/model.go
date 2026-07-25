@@ -8,6 +8,7 @@ import (
 // Model is the provider-independent interface used by Agent.
 type Model interface {
 	GenerateResponse(context.Context, ModelRequest) (ModelStream, error)
+	EstimateRequestTokens(ModelRequest) (int, error)
 }
 
 type TextDeltaHandler func(string) error

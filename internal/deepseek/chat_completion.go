@@ -45,6 +45,15 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+type chatCompletionRequestBody struct {
+	Model    string           `json:"model"`
+	Messages []message        `json:"messages"`
+	Tools    []toolDefinition `json:"tools,omitempty"`
+	Thinking thinkingConfig   `json:"thinking"`
+	Stream   bool             `json:"stream"`
+	Options  streamOptions    `json:"stream_options"`
+}
+
 func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chatCompletionRequest) (*chatCompletionStream, error) {
 	if client.apiKey == "" {
 		return nil, fmt.Errorf("DeepSeek API key is empty")
@@ -53,23 +62,9 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 		return nil, fmt.Errorf("DeepSeek chat completion has no messages")
 	}
 
-	requestBody, err := json.Marshal(struct {
-		Model    string           `json:"model"`
-		Messages []message        `json:"messages"`
-		Tools    []toolDefinition `json:"tools,omitempty"`
-		Thinking thinkingConfig   `json:"thinking"`
-		Stream   bool             `json:"stream"`
-		Options  streamOptions    `json:"stream_options"`
-	}{
-		Model:    client.model,
-		Messages: input.Messages,
-		Tools:    input.Tools,
-		Thinking: thinkingConfig{Type: "enabled"},
-		Stream:   true,
-		Options:  streamOptions{IncludeUsage: true},
-	})
+	requestBody, err := client.encodeChatCompletionRequest(input)
 	if err != nil {
-		return nil, fmt.Errorf("DeepSeek encode chat completion request: %w", err)
+		return nil, err
 	}
 
 	endpoint := strings.TrimRight(client.baseURL, "/") + "/chat/completions"
@@ -85,7 +80,7 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 		return nil, fmt.Errorf("DeepSeek send chat completion request: %w", err)
 	}
 	if httpResponse.StatusCode >= http.StatusOK && httpResponse.StatusCode < http.StatusMultipleChoices {
-		return newChatCompletionStream(httpResponse.Body, (len(requestBody)+3)/4), nil
+		return newChatCompletionStream(httpResponse.Body), nil
 	}
 	errorBody, err := io.ReadAll(httpResponse.Body)
 	_ = httpResponse.Body.Close()
@@ -93,6 +88,21 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 		return nil, fmt.Errorf("DeepSeek read chat completion error response: %w", err)
 	}
 	return nil, fmt.Errorf("DeepSeek chat completion returned %s: %s", httpResponse.Status, errorBody)
+}
+
+func (client *DeepSeekClient) encodeChatCompletionRequest(input chatCompletionRequest) ([]byte, error) {
+	requestBody, err := json.Marshal(chatCompletionRequestBody{
+		Model:    client.model,
+		Messages: input.Messages,
+		Tools:    input.Tools,
+		Thinking: thinkingConfig{Type: "enabled"},
+		Stream:   true,
+		Options:  streamOptions{IncludeUsage: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DeepSeek encode chat completion request: %w", err)
+	}
+	return requestBody, nil
 }
 
 type functionCall struct {
@@ -158,11 +168,10 @@ type chatCompletionEvent struct {
 	Response  *modelResponse
 }
 
-func newChatCompletionStream(body io.ReadCloser, fallbackPromptTokens int) *chatCompletionStream {
+func newChatCompletionStream(body io.ReadCloser) *chatCompletionStream {
 	return &chatCompletionStream{
 		body:      body,
 		reader:    bufio.NewReader(body),
-		response:  modelResponse{Usage: agent.TokenUsage{PromptTokens: fallbackPromptTokens, TotalTokens: fallbackPromptTokens}},
 		toolCalls: map[int]*toolCall{},
 	}
 }

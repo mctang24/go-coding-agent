@@ -215,7 +215,7 @@ func TestParseChatCompletionStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stream := newChatCompletionStream(io.NopCloser(strings.NewReader(tt.data)), 0)
+			stream := newChatCompletionStream(io.NopCloser(strings.NewReader(tt.data)))
 			_, response, err := readChatCompletionStream(stream)
 			if tt.wantErr {
 				if err == nil {
@@ -243,7 +243,7 @@ func TestParseChatCompletionStreamAcceptsLargeEvent(t *testing.T) {
 	content := strings.Repeat("a", 1024*1024)
 	data := "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"content\":\"" + content + "\"}}]}\n\ndata: [DONE]\n\n"
 
-	stream := newChatCompletionStream(io.NopCloser(strings.NewReader(data)), 0)
+	stream := newChatCompletionStream(io.NopCloser(strings.NewReader(data)))
 	_, response, err := readChatCompletionStream(stream)
 	if err != nil {
 		t.Fatalf("parseChatCompletionStream() error = %v", err)
@@ -258,7 +258,7 @@ func TestParseChatCompletionStreamAcceptsLargeEvent(t *testing.T) {
 
 func TestParseChatCompletionStreamDoesNotEmitReasoning(t *testing.T) {
 	data := "data: {\"choices\":[{\"finish_reason\":null,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"hidden\"}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{\"content\":\"shown\"}}]}\n\ndata: [DONE]\n\n"
-	stream := newChatCompletionStream(io.NopCloser(strings.NewReader(data)), 0)
+	stream := newChatCompletionStream(io.NopCloser(strings.NewReader(data)))
 	streamed, response, err := readChatCompletionStream(stream)
 	if err != nil {
 		t.Fatalf("parseChatCompletionStream() error = %v", err)
@@ -268,18 +268,5 @@ func TestParseChatCompletionStreamDoesNotEmitReasoning(t *testing.T) {
 	}
 	if response.Message.ReasoningContent == nil || *response.Message.ReasoningContent != "hidden" {
 		t.Fatalf("reasoning content = %v, want hidden", response.Message.ReasoningContent)
-	}
-}
-
-func TestChatCompletionStreamUsesSerializedRequestSizeByDefault(t *testing.T) {
-	data := "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"content\":\"done\"}}]}\n\ndata: [DONE]\n\n"
-	stream := newChatCompletionStream(io.NopCloser(strings.NewReader(data)), 23)
-
-	_, response, err := readChatCompletionStream(stream)
-	if err != nil {
-		t.Fatalf("readChatCompletionStream() error = %v", err)
-	}
-	if response.Usage.PromptTokens != 23 || response.Usage.TotalTokens != 23 {
-		t.Fatalf("response usage = %#v, want request estimate 23", response.Usage)
 	}
 }

@@ -23,6 +23,10 @@ func (model *interactiveModel) GenerateResponse(_ context.Context, request agent
 	return &interactiveStream{response: response}, nil
 }
 
+func (model *interactiveModel) EstimateRequestTokens(agent.ModelRequest) (int, error) {
+	return 0, nil
+}
+
 type interactiveStream struct {
 	response agent.ModelResponse
 	sentText bool
@@ -84,6 +88,10 @@ func (model *failingInteractiveModel) GenerateResponse(context.Context, agent.Mo
 	}
 	response := agent.ModelResponse{Message: agent.Message{Role: "assistant", Content: "done"}}
 	return &interactiveStream{response: response}, nil
+}
+
+func (model *failingInteractiveModel) EstimateRequestTokens(agent.ModelRequest) (int, error) {
+	return 0, nil
 }
 
 func TestRunInteractiveContinuesAfterRunError(t *testing.T) {

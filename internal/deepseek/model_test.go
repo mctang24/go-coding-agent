@@ -104,6 +104,44 @@ func TestGenerateResponse(t *testing.T) {
 	}
 }
 
+func TestEstimateRequestTokensMatchesSerializedRequest(t *testing.T) {
+	var requestSize int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		requestSize = len(body)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"content\":\"done\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := DeepSeekClient{httpClient: server.Client(), baseURL: server.URL, apiKey: "test-key", model: "test-model"}
+	request := agent.ModelRequest{
+		Instructions: "inspect",
+		Messages:     []agent.Message{{Role: "user", Content: "question"}},
+		Tools: []agent.ToolDefinition{{
+			Name:        "search_text",
+			Description: "search text",
+			Parameters:  tools.ObjectSchema(nil),
+		}},
+	}
+	estimated, err := client.EstimateRequestTokens(request)
+	if err != nil {
+		t.Fatalf("EstimateRequestTokens() error = %v", err)
+	}
+	stream, err := client.GenerateResponse(context.Background(), request)
+	if err != nil {
+		t.Fatalf("GenerateResponse() error = %v", err)
+	}
+	if _, err := readModelStream(stream); err != nil {
+		t.Fatalf("read model stream: %v", err)
+	}
+	if estimated != (requestSize+3)/4 {
+		t.Fatalf("estimated tokens = %d, want serialized request estimate %d", estimated, (requestSize+3)/4)
+	}
+}
+
 func TestGenerateResponseOmitsEmptyInstructions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
