@@ -117,7 +117,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 		}
 		response, err := agent.callModel(ctx, request, onTextDelta, currentTrace, turn+1)
 		if err != nil {
-			return RunResult{}, err
+			return RunResult{}, fmt.Errorf("agent run: %w", err)
 		}
 
 		messages = append(messages, response.Message)
@@ -207,7 +207,7 @@ func (agent *Agent) callModel(ctx context.Context, request ModelRequest, onTextD
 		reportTraceError("model_response", traceErr)
 	}
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent run: %w", err)
+		return ModelResponse{}, err
 	}
 	return *response, nil
 }
