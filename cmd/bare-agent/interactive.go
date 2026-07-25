@@ -41,6 +41,13 @@ func runInteractive(ctx context.Context, runner *agent.Agent, input io.Reader, o
 			}
 			fmt.Fprintln(output, "new conversation")
 			continue
+		case "/compact":
+			if err := runner.Compact(ctx); err != nil {
+				fmt.Fprintln(errorOutput, err)
+				continue
+			}
+			fmt.Fprintln(output, "conversation compacted")
+			continue
 		}
 
 		err := runTask(ctx, runner, task, output)

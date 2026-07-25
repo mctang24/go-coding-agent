@@ -2,6 +2,8 @@ package agent
 
 const compactThresholdPercent = 90
 
+const defaultContextWindow = 512 * 1024
+
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`

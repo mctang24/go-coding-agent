@@ -75,13 +75,12 @@ const updateSummaryPrompt = `以上消息包含已有摘要以及需要合并的
 
 // Compact replaces older conversation turns with a structured summary.
 func (agent *Agent) Compact(ctx context.Context) error {
-	if agent.model == nil {
-		return fmt.Errorf("compact history: model is nil")
-	}
-
 	older, recent := splitHistory(agent.messages)
 	if len(older) == 0 {
-		return fmt.Errorf("compact history: no older turns to summarize")
+		return nil
+	}
+	if agent.model == nil {
+		return fmt.Errorf("compact history: model is nil")
 	}
 
 	summaryPrompt := initialSummaryPrompt

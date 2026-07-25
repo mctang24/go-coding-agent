@@ -74,6 +74,26 @@ func TestRunInteractive(t *testing.T) {
 	}
 }
 
+func TestRunInteractiveCompactCommand(t *testing.T) {
+	model := &interactiveModel{responses: []agent.ModelResponse{
+		{Message: agent.Message{Role: "assistant", Content: "first answer"}},
+		{Message: agent.Message{Role: "assistant", Content: "second answer"}},
+		{Message: agent.Message{Role: "assistant", Content: "third answer"}},
+		{Message: agent.Message{Role: "assistant", Content: "## 目标\n## 约束和偏好\n## 进度\n### 已完成\n### 进行中\n### 阻塞\n## 关键决策\n## 下一步\n## 关键上下文"}},
+	}}
+	runner, err := agent.NewAgent(t.TempDir(), model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	if err := runInteractive(context.Background(), runner, strings.NewReader("one\ntwo\nthree\n/compact\n/exit\n"), &output, &output); err != nil {
+		t.Fatalf("runInteractive() error = %v", err)
+	}
+	if !strings.Contains(output.String(), "conversation compacted") || len(model.requests) != 4 {
+		t.Fatalf("output = %q, requests = %d", output.String(), len(model.requests))
+	}
+}
+
 type failingInteractiveModel struct {
 	calls int
 }

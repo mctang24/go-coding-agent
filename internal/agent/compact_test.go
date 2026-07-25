@@ -243,7 +243,7 @@ func TestAgentCompactKeepsStateOnFailure(t *testing.T) {
 	}
 }
 
-func TestAgentCompactRejectsInsufficientHistory(t *testing.T) {
+func TestAgentCompactSkipsInsufficientHistory(t *testing.T) {
 	model := &modelStub{}
 	runner := Agent{
 		model: model,
@@ -257,8 +257,8 @@ func TestAgentCompactRejectsInsufficientHistory(t *testing.T) {
 	}
 
 	err := runner.Compact(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "no older turns") {
-		t.Fatalf("Compact() error = %v", err)
+	if err != nil {
+		t.Fatalf("Compact() error = %v, want nil", err)
 	}
 	if len(model.requests) != 0 || model.estimateCalls != 0 || runner.tokenUsage != 20 {
 		t.Fatalf("state or model calls changed: agent = %#v, model = %#v", runner, model)

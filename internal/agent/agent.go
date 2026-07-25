@@ -95,6 +95,11 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 	if agent.maxTurns <= 0 {
 		return RunResult{}, fmt.Errorf("agent run: max turns must be positive")
 	}
+	if shouldCompact(agent.tokenUsage, defaultContextWindow) {
+		if err := agent.Compact(ctx); err != nil {
+			return RunResult{}, fmt.Errorf("agent run: automatic compact: %w", err)
+		}
+	}
 
 	definitions := modelTools(agent.tools)
 	currentTrace, err := agent.startRunTrace(task, definitions)

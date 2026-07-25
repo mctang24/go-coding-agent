@@ -161,6 +161,38 @@ func TestAgentRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunAutomaticallyCompactsAtThreshold(t *testing.T) {
+	model := &modelStub{
+		responses: []ModelResponse{
+			{Message: Message{Role: "assistant", Content: validSummary()}},
+			{Message: Message{Role: "assistant", Content: "done"}},
+		},
+	}
+	runner := Agent{
+		model:    model,
+		maxTurns: 1,
+		messages: append(compactableHistory(),
+			Message{Role: "user", Content: "fourth question"},
+			Message{Role: "assistant", Content: "fourth answer"},
+		),
+		tokenUsage: defaultContextWindow*compactThresholdPercent/100 + 1,
+	}
+
+	result, err := runner.Run(context.Background(), "new question", nil)
+	if err != nil || result.Content != "done" {
+		t.Fatalf("Run() = %#v, error = %v, requests = %#v", result, err, model.requests)
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("model request count = %d, want 2", len(model.requests))
+	}
+	if model.requests[0].Instructions != summaryInstructions {
+		t.Fatalf("first request instructions = %q, want compact instructions", model.requests[0].Instructions)
+	}
+	if !isSummaryMessage(model.requests[1].Messages[0]) {
+		t.Fatalf("automatic compact summary missing from request: %#v", model.requests[1].Messages)
+	}
+}
+
 func TestAgentRunEditsFile(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "file.txt")
