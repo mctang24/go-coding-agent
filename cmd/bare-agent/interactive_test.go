@@ -62,7 +62,7 @@ func TestRunInteractive(t *testing.T) {
 	}
 	var output strings.Builder
 
-	err = runInteractive(context.Background(), runner, strings.NewReader("first question\n/new\nsecond question\n/exit\n"), &output, &output)
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first question\n/new\nsecond question\n/exit\n")), &output, &output)
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRunInteractiveCompactCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output strings.Builder
-	if err := runInteractive(context.Background(), runner, strings.NewReader("one\ntwo\nthree\n/compact\n/exit\n"), &output, &output); err != nil {
+	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("one\ntwo\nthree\n/compact\n/exit\n")), &output, &output); err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
 	if !strings.Contains(output.String(), "conversation compacted") || len(model.requests) != 4 {
@@ -123,7 +123,7 @@ func TestRunInteractiveContinuesAfterRunError(t *testing.T) {
 	var output strings.Builder
 	var errorOutput strings.Builder
 
-	err = runInteractive(context.Background(), runner, strings.NewReader("first\nsecond\n/exit\n"), &output, &errorOutput)
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first\nsecond\n/exit\n")), &output, &errorOutput)
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}

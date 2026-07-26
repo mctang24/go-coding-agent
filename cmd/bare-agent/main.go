@@ -41,17 +41,20 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	ctx := context.Background()
+	scanner := bufio.NewScanner(os.Stdin)
+	runner.SetWriteApprover(newScannerWriteApprover(scanner, os.Stdout))
+	runner.SetCommandApprover(newScannerCommandApprover(scanner, os.Stdout))
+
 	if config.task == "" {
-		if err := runInteractive(context.Background(), runner, os.Stdin, os.Stdout, os.Stderr); err != nil {
+		if err := runInteractive(ctx, runner, scanner, os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
 	}
-	scanner := bufio.NewScanner(os.Stdin)
-	runner.SetWriteApprover(newScannerWriteApprover(scanner, os.Stdout))
-	runner.SetCommandApprover(newScannerCommandApprover(scanner, os.Stdout))
-	if err := runTask(context.Background(), runner, config.task, os.Stdout); err != nil {
+	if err := runTask(ctx, runner, config.task, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

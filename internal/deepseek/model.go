@@ -139,6 +139,9 @@ func (stream *modelStream) Recv() (agent.ModelStreamEvent, error) {
 	if response.FinishReason == "tool_calls" && len(response.Message.ToolCalls) == 0 {
 		return agent.ModelStreamEvent{}, fmt.Errorf("DeepSeek chat completion stopped for tool calls but returned none")
 	}
+	if response.FinishReason == "stop" && len(response.Message.ToolCalls) > 0 {
+		return agent.ModelStreamEvent{}, fmt.Errorf("DeepSeek chat completion stopped normally but returned tool calls")
+	}
 
 	rawMessage, err := json.Marshal(response.Message)
 	if err != nil {

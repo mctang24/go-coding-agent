@@ -20,10 +20,7 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 }
 
 // runInteractive runs an in-memory conversation until the user exits.
-func runInteractive(ctx context.Context, runner *agent.Agent, input io.Reader, output, errorOutput io.Writer) error {
-	scanner := bufio.NewScanner(input)
-	runner.SetWriteApprover(newScannerWriteApprover(scanner, output))
-	runner.SetCommandApprover(newScannerCommandApprover(scanner, output))
+func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Scanner, output, errorOutput io.Writer) error {
 	for {
 		fmt.Fprint(output, "> ")
 		if !scanner.Scan() {

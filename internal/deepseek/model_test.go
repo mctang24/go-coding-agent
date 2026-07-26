@@ -187,6 +187,7 @@ func TestGenerateResponseErrors(t *testing.T) {
 		{name: "unsafe finish reason", request: agent.ModelRequest{Messages: []agent.Message{{Role: "user", Content: "test"}}}, response: "data: {\"choices\":[{\"finish_reason\":\"length\",\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"}}]}\n\ndata: [DONE]\n\n", wantErr: `finish reason "length"`, wantCalled: true},
 		{name: "unknown finish reason", request: agent.ModelRequest{Messages: []agent.Message{{Role: "user", Content: "test"}}}, response: "data: {\"choices\":[{\"finish_reason\":\"future_reason\",\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"}}]}\n\ndata: [DONE]\n\n", wantErr: `finish reason "future_reason"`, wantCalled: true},
 		{name: "missing tool calls", request: agent.ModelRequest{Messages: []agent.Message{{Role: "user", Content: "test"}}}, response: "data: {\"choices\":[{\"finish_reason\":\"tool_calls\",\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: [DONE]\n\n", wantErr: "returned none", wantCalled: true},
+		{name: "tool calls after stop", request: agent.ModelRequest{Messages: []agent.Message{{Role: "user", Content: "test"}}}, response: "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n", wantErr: "stopped normally but returned tool calls", wantCalled: true},
 	}
 
 	for _, tt := range tests {
