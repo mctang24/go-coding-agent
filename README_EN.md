@@ -1,4 +1,4 @@
-# Bare Agent
+# Go Coding Agent
 
 A coding agent built from scratch in Go that can inspect code, edit files, and run commands to verify its changes.
 
@@ -20,7 +20,7 @@ Requires Go 1.26, `rg`, and a DeepSeek API key.
 
 ```bash
 export DEEPSEEK_API_KEY="your-api-key"
-go run ./cmd/bare-agent -root .
+go run ./cmd/go-coding-agent -root .
 ```
 
 Submit coding tasks directly in interactive mode:
@@ -34,13 +34,13 @@ Submit coding tasks directly in interactive mode:
 You can also run a one-off task:
 
 ```bash
-go run ./cmd/bare-agent -root . "Explain the main entry point and call flow"
+go run ./cmd/go-coding-agent -root . "Explain the main entry point and call flow"
 ```
 
 To record an execution trace, provide a trace file:
 
 ```bash
-go run ./cmd/bare-agent -root . -trace /tmp/bare-agent-trace.jsonl "Explain the project entry point"
+go run ./cmd/go-coding-agent -root . -trace /tmp/go-coding-agent-trace.jsonl "Explain the project entry point"
 ```
 
 File changes and command execution require explicit terminal approval. Conversations are kept in memory and are not persisted across processes.

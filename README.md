@@ -1,4 +1,4 @@
-# Bare Agent
+# Go Coding Agent
 
 一个用 Go 从零实现的 Coding Agent，能够检索代码、修改文件并运行命令验证结果。
 
@@ -20,7 +20,7 @@
 
 ```bash
 export DEEPSEEK_API_KEY="your-api-key"
-go run ./cmd/bare-agent -root .
+go run ./cmd/go-coding-agent -root .
 ```
 
 启动后可以直接提交代码任务：
@@ -34,13 +34,13 @@ go run ./cmd/bare-agent -root .
 也可以运行一次性任务：
 
 ```bash
-go run ./cmd/bare-agent -root . "分析项目入口并说明主要调用链"
+go run ./cmd/go-coding-agent -root . "分析项目入口并说明主要调用链"
 ```
 
 需要记录执行轨迹时，指定 trace 文件：
 
 ```bash
-go run ./cmd/bare-agent -root . -trace /tmp/bare-agent-trace.jsonl "分析项目入口"
+go run ./cmd/go-coding-agent -root . -trace /tmp/go-coding-agent-trace.jsonl "分析项目入口"
 ```
 
 文件修改和命令执行会在终端中逐次请求确认。会话仅保存在当前进程内，不跨进程持久化。
