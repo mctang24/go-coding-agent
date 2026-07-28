@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bare-agent/internal/agent"
-	"bare-agent/internal/deepseek"
-	"bare-agent/internal/trace"
 	"bufio"
 	"context"
 	"fmt"
+	"go-coding-agent/internal/agent"
+	"go-coding-agent/internal/deepseek"
+	"go-coding-agent/internal/trace"
 	"os"
 )
 

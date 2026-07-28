@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"bare-agent/internal/tools"
-	"bare-agent/internal/trace"
+	"go-coding-agent/internal/tools"
+	"go-coding-agent/internal/trace"
 )
 
 type modelStub struct {

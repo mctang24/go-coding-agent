@@ -81,7 +81,7 @@ func (workspaceTools *WorkspaceTools) executeWriteFile(ctx context.Context, root
 }
 
 func writeFileAtomically(path string, content []byte, mode os.FileMode) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".bare-agent-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".go-coding-agent-*")
 	if err != nil {
 		return err
 	}

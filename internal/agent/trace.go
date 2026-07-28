@@ -1,14 +1,14 @@
 package agent
 
 import (
-	"bare-agent/internal/tools"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"go-coding-agent/internal/tools"
 	"os"
 	"time"
 
-	"bare-agent/internal/trace"
+	"go-coding-agent/internal/trace"
 )
 
 type runTrace struct {

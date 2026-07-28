@@ -1,13 +1,13 @@
 package deepseek
 
 import (
-	"bare-agent/internal/agent"
-	"bare-agent/internal/tools"
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"go-coding-agent/internal/agent"
+	"go-coding-agent/internal/tools"
 	"io"
 	"net/http"
 	"strings"

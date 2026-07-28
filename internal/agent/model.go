@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"bare-agent/internal/tools"
 	"context"
 	"errors"
+	"go-coding-agent/internal/tools"
 )
 
 var ErrRateLimit = errors.New("model rate limit")

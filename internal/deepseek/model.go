@@ -1,10 +1,10 @@
 package deepseek
 
 import (
-	"bare-agent/internal/agent"
 	"context"
 	"encoding/json"
 	"fmt"
+	"go-coding-agent/internal/agent"
 )
 
 // GenerateResponse generates a response with DeepSeek.

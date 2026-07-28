@@ -3,10 +3,10 @@
 .vscode/
 .codex/
 .DS_Store
-/bare-agent
+/go-coding-agent
 *.test
 *.out
 AGENTS.md
 ROADMAP.md
 RUNTIME_DESIGN.md
-裸Agent学习与实现方案.md
+Go Coding Agent学习与实现方案.md

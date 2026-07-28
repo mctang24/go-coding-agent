@@ -14,7 +14,7 @@ type config struct {
 
 // parseArgs parses the working directory and task.
 func parseArgs(args []string) (config, error) {
-	flags := flag.NewFlagSet("bare-agent", flag.ContinueOnError)
+	flags := flag.NewFlagSet("go-coding-agent", flag.ContinueOnError)
 	root := flags.String("root", ".", "agent working directory")
 	tracePath := flags.String("trace", "", "JSONL trace output path")
 	if err := flags.Parse(args); err != nil {

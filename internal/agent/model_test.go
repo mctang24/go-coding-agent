@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"bare-agent/internal/tools"
+	"go-coding-agent/internal/tools"
 )
 
 func TestModelTools(t *testing.T) {

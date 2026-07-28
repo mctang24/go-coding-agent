@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"bare-agent/internal/tools"
+	"go-coding-agent/internal/tools"
 )
 
 func TestAgentCompact(t *testing.T) {

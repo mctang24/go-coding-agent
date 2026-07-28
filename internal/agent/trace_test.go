@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"bare-agent/internal/trace"
 	"context"
 	"encoding/hex"
 	"errors"
+	"go-coding-agent/internal/trace"
 	"path/filepath"
 	"strings"
 	"testing"

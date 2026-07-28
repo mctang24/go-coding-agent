@@ -1,10 +1,10 @@
 package deepseek
 
 import (
-	"bare-agent/internal/agent"
-	"bare-agent/internal/tools"
 	"context"
 	"encoding/json"
+	"go-coding-agent/internal/agent"
+	"go-coding-agent/internal/tools"
 	"io"
 	"net/http"
 	"net/http/httptest"

@@ -1,3 +1,3 @@
-module bare-agent
+module go-coding-agent
 
 go 1.26

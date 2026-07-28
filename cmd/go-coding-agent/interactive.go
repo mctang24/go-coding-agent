@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bare-agent/internal/agent"
-	"bare-agent/internal/tools"
 	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"go-coding-agent/internal/agent"
+	"go-coding-agent/internal/tools"
 	"io"
 	"strings"
 )

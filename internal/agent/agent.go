@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"bare-agent/internal/tools"
-	"bare-agent/internal/trace"
 	"context"
 	"fmt"
+	"go-coding-agent/internal/tools"
+	"go-coding-agent/internal/trace"
 	"io"
 	"time"
 )
