@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"time"
 )
@@ -185,9 +186,9 @@ func splitHistory(messages []Message) ([]Message, []Message) {
 		}
 	}
 	if userMessages < retainedTurns || cut == 0 {
-		return nil, append([]Message(nil), messages...)
+		return nil, slices.Clone(messages)
 	}
-	return append([]Message(nil), messages[:cut]...), append([]Message(nil), messages[cut:]...)
+	return slices.Clone(messages[:cut]), slices.Clone(messages[cut:])
 }
 
 func isSummaryMessage(message Message) bool {
