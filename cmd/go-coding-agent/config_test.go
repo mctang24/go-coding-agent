@@ -32,3 +32,15 @@ func TestParseArgsErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemPromptRequiresVerification(t *testing.T) {
+	for _, requirement := range []string{
+		"最终回答前必须调用 verify_command",
+		"完成性检查必须使用 verify_command",
+		"不能使用 run_command",
+	} {
+		if !strings.Contains(systemPrompt, requirement) {
+			t.Errorf("systemPrompt missing %q", requirement)
+		}
+	}
+}

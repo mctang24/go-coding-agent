@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ func TestRunCommand(t *testing.T) {
 	root := t.TempDir()
 	workspaceTools := NewWorkspaceTools()
 	workspaceTools.SetCommandApprover(func(_ context.Context, request CommandRequest) (bool, error) {
-		if request.Command != os.Args[0] || len(request.Args) == 0 {
+		if request.Tool != "run_command" || request.Command != os.Args[0] || len(request.Args) == 0 {
 			t.Fatalf("approval request = %#v", request)
 		}
 		return true, nil
@@ -26,7 +27,7 @@ func TestRunCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_command error = %v", err)
 	}
-	var result runCommandResult
+	var result CommandResult
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestRunCommandUsesRootAsWorkingDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_command error = %v", err)
 	}
-	var result runCommandResult
+	var result CommandResult
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestRunCommandReturnsNonzeroExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_command error = %v", err)
 	}
-	var result runCommandResult
+	var result CommandResult
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestRunCommandTruncatesOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_command error = %v", err)
 	}
-	var result runCommandResult
+	var result CommandResult
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +119,33 @@ func TestRunCommandTimeout(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout error = %v", err)
 	}
+	var executionErr *CommandExecutionError
+	if !errors.As(err, &executionErr) {
+		t.Fatalf("timeout error type = %T, want *CommandExecutionError", err)
+	}
+}
+
+func TestVerifyCommand(t *testing.T) {
+	workspaceTools := NewWorkspaceTools()
+	workspaceTools.SetCommandApprover(func(_ context.Context, request CommandRequest) (bool, error) {
+		if request.Tool != "verify_command" {
+			t.Fatalf("approval tool = %q, want verify_command", request.Tool)
+		}
+		return true, nil
+	})
+	verify := findTool(t, workspaceTools, "verify_command")
+
+	output, err := verify.Execute(context.Background(), t.TempDir(), helperCommandArguments("exit"))
+	if err != nil {
+		t.Fatalf("verify_command error = %v", err)
+	}
+	var result CommandResult
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 7 || result.Stderr != "failed" {
+		t.Fatalf("result = %#v", result)
+	}
 }
 
 func TestRunCommandValidatesArguments(t *testing.T) {
@@ -143,7 +171,7 @@ func TestRunCommandValidatesArguments(t *testing.T) {
 }
 
 func helperCommandArguments(mode string) string {
-	arguments, err := json.Marshal(runCommandInput{
+	arguments, err := json.Marshal(CommandInput{
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestRunCommandHelperProcess", "--", mode},
 	})

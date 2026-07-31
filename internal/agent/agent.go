@@ -12,16 +12,18 @@ import (
 const defaultMaxTurns = 20
 
 type Agent struct {
-	root           string
-	tools          []tools.Tool
-	model          Model
-	instructions   string
-	maxTurns       int
-	messages       []Message
-	tokenUsage     int
-	traceWriter    *trace.Writer
-	sessionID      string
-	workspaceTools *tools.WorkspaceTools
+	root                string
+	tools               []tools.Tool
+	model               Model
+	instructions        string
+	maxTurns            int
+	messages            []Message
+	tokenUsage          int
+	traceWriter         *trace.Writer
+	sessionID           string
+	workspaceTools      *tools.WorkspaceTools
+	hasUnverifiedChange bool
+	lastVerification    *verificationFact
 }
 
 // EnableTrace enables JSONL tracing for the agent session.
@@ -107,7 +109,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 		reportTraceError("run_start", err)
 	}
 	defer func() {
-		if err := currentTrace.finish(runErr); err != nil {
+		if err := currentTrace.finish(runErr, agent.hasUnverifiedChange, agent.lastVerification); err != nil {
 			reportTraceError("run_end", err)
 		}
 	}()
@@ -270,6 +272,8 @@ func (agent *Agent) Reset() error {
 	}
 	agent.messages = nil
 	agent.tokenUsage = 0
+	agent.hasUnverifiedChange = false
+	agent.lastVerification = nil
 	if agent.workspaceTools != nil {
 		agent.workspaceTools.ResetReadState()
 	}

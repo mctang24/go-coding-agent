@@ -13,37 +13,58 @@ const (
 	defaultCommandTimeout = 60 * time.Second
 )
 
-type runCommandInput struct {
+type CommandInput struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 }
 
-type runCommandResult struct {
+type CommandResult struct {
 	ExitCode int    `json:"exit_code"`
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 }
 
+// CommandExecutionError reports a failure after the command process started.
+type CommandExecutionError struct {
+	Err error
+}
+
+func (err *CommandExecutionError) Error() string {
+	return err.Err.Error()
+}
+
+func (err *CommandExecutionError) Unwrap() error {
+	return err.Err
+}
+
 func (workspaceTools *WorkspaceTools) executeRunCommand(ctx context.Context, root, arguments string) (string, error) {
-	var input runCommandInput
+	return workspaceTools.executeCommand(ctx, root, "run_command", arguments)
+}
+
+func (workspaceTools *WorkspaceTools) executeVerifyCommand(ctx context.Context, root, arguments string) (string, error) {
+	return workspaceTools.executeCommand(ctx, root, "verify_command", arguments)
+}
+
+func (workspaceTools *WorkspaceTools) executeCommand(ctx context.Context, root, toolName, arguments string) (string, error) {
+	var input CommandInput
 	if err := decodeArguments(arguments, &input); err != nil {
-		return "", fmt.Errorf("execute run_command: decode arguments: %w", err)
+		return "", fmt.Errorf("execute %s: decode arguments: %w", toolName, err)
 	}
 	if input.Command == "" {
-		return "", fmt.Errorf("execute run_command: command is empty")
+		return "", fmt.Errorf("execute %s: command is empty", toolName)
 	}
 	if input.Args == nil {
-		return "", fmt.Errorf("execute run_command: args is required")
+		return "", fmt.Errorf("execute %s: args is required", toolName)
 	}
 	if workspaceTools.commandApprover == nil {
-		return "", fmt.Errorf("execute run_command: command approval is not configured")
+		return "", fmt.Errorf("execute %s: command approval is not configured", toolName)
 	}
-	approved, err := workspaceTools.commandApprover(ctx, CommandRequest{Command: input.Command, Args: input.Args})
+	approved, err := workspaceTools.commandApprover(ctx, CommandRequest{Tool: toolName, Command: input.Command, Args: input.Args})
 	if err != nil {
-		return "", fmt.Errorf("execute run_command: request approval: %w", err)
+		return "", fmt.Errorf("execute %s: request approval: %w", toolName, err)
 	}
 	if !approved {
-		return "", fmt.Errorf("execute run_command: user denied command")
+		return "", fmt.Errorf("execute %s: user denied command", toolName)
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, workspaceTools.commandTimeout)
@@ -53,29 +74,31 @@ func (workspaceTools *WorkspaceTools) executeRunCommand(ctx context.Context, roo
 	var stdout, stderr limitedOutput
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	err = command.Run()
-	if commandCtx.Err() != nil {
-		if errors.Is(commandCtx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("execute run_command: command timed out after %s", workspaceTools.commandTimeout)
-		}
-		return "", fmt.Errorf("execute run_command: command cancelled: %w", commandCtx.Err())
+	if err := command.Start(); err != nil {
+		return "", fmt.Errorf("execute %s: start command: %w", toolName, err)
+	}
+	waitErr := command.Wait()
+	result := CommandResult{
+		Stdout: stdout.String(),
+		Stderr: stderr.String(),
 	}
 
-	exitCode := 0
-	if err != nil {
-		var exitError *exec.ExitError
-		if !errors.As(err, &exitError) {
-			return "", fmt.Errorf("execute run_command: start command: %w", err)
-		}
-		exitCode = exitError.ExitCode()
+	exitError, isExitError := waitErr.(*exec.ExitError)
+	switch {
+	case errors.Is(commandCtx.Err(), context.DeadlineExceeded):
+		return "", &CommandExecutionError{Err: fmt.Errorf("execute %s: command timed out after %s", toolName, workspaceTools.commandTimeout)}
+	case commandCtx.Err() != nil:
+		return "", &CommandExecutionError{Err: fmt.Errorf("execute %s: command cancelled: %w", toolName, commandCtx.Err())}
+	case waitErr == nil:
+	case isExitError:
+		result.ExitCode = exitError.ExitCode()
+	default:
+		return "", &CommandExecutionError{Err: fmt.Errorf("execute %s: wait for command: %w", toolName, waitErr)}
 	}
-	result, err := json.Marshal(runCommandResult{
-		ExitCode: exitCode,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-	})
+
+	encoded, err := json.Marshal(result)
 	if err != nil {
-		return "", fmt.Errorf("execute run_command: encode result: %w", err)
+		return "", fmt.Errorf("execute %s: encode result: %w", toolName, err)
 	}
-	return string(result), nil
+	return string(encoded), nil
 }

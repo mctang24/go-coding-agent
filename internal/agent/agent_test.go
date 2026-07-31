@@ -46,8 +46,8 @@ func TestNewAgent(t *testing.T) {
 	if created.model != model || created.instructions != "inspect" || created.maxTurns != defaultMaxTurns {
 		t.Fatalf("NewAgent() = %#v", created)
 	}
-	if len(created.tools) != 6 {
-		t.Fatalf("NewAgent() tool count = %d, want 6", len(created.tools))
+	if len(created.tools) != 7 {
+		t.Fatalf("NewAgent() tool count = %d, want 7", len(created.tools))
 	}
 
 	configured, err := NewAgent(t.TempDir(), model, "", 3)
@@ -162,6 +162,9 @@ func TestAgentRun(t *testing.T) {
 	}
 	if len(model.requests) != 2 || len(model.requests[1].Messages) != 3 {
 		t.Fatalf("model requests = %#v", model.requests)
+	}
+	if model.requests[0].Instructions != "inspect" || model.requests[1].Instructions != "inspect" {
+		t.Fatalf("model instructions = %q, %q", model.requests[0].Instructions, model.requests[1].Instructions)
 	}
 	toolMessage := model.requests[1].Messages[2]
 	if toolMessage.Role != "tool" || len(toolMessage.ToolResults) != 1 || toolMessage.ToolResults[0].Content != "result" {
@@ -278,6 +281,108 @@ func TestAgentRunReturnsWriteDenialToModel(t *testing.T) {
 	toolResults := model.requests[1].Messages[2].ToolResults
 	if len(toolResults) != 1 || !toolResults[0].IsError || !strings.Contains(toolResults[0].Content, "user denied") {
 		t.Fatalf("tool results = %#v", toolResults)
+	}
+	if runner.hasUnverifiedChange || runner.lastVerification != nil {
+		t.Fatalf("denied write changed verification state: %#v", runner)
+	}
+}
+
+func TestAgentRunEndVerificationStatus(t *testing.T) {
+	tests := []struct {
+		name              string
+		initialUnverified bool
+		calls             []ToolCall
+		tools             []tools.Tool
+		wantStatus        string
+		wantVerification  bool
+		wantExitCode      float64
+	}{
+		{
+			name:  "successful edit is incomplete",
+			calls: []ToolCall{{ID: "edit", Name: "edit_file", Arguments: `{}`}},
+			tools: []tools.Tool{{Name: "edit_file", Execute: func(context.Context, string, string) (string, error) {
+				return "edited", nil
+			}}},
+			wantStatus: "incomplete",
+		},
+		{
+			name:              "successful verification completes changes",
+			initialUnverified: true,
+			calls:             []ToolCall{{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`}},
+			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
+				return `{"exit_code":0,"stdout":"ok","stderr":""}`, nil
+			}}},
+			wantStatus:       "success",
+			wantVerification: true,
+			wantExitCode:     0,
+		},
+		{
+			name:              "failed verification remains incomplete",
+			initialUnverified: true,
+			calls:             []ToolCall{{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`}},
+			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
+				return `{"exit_code":1,"stdout":"","stderr":"failed"}`, nil
+			}}},
+			wantStatus:       "incomplete",
+			wantVerification: true,
+			wantExitCode:     1,
+		},
+		{
+			name: "command after verification invalidates evidence",
+			calls: []ToolCall{
+				{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`},
+				{ID: "run", Name: "run_command", Arguments: `{"command":"go","args":["generate"]}`},
+			},
+			tools: []tools.Tool{
+				{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
+					return `{"exit_code":0,"stdout":"ok","stderr":""}`, nil
+				}},
+				{Name: "run_command", Execute: func(context.Context, string, string) (string, error) {
+					return `{"exit_code":0,"stdout":"","stderr":""}`, nil
+				}},
+			},
+			wantStatus: "incomplete",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "trace.jsonl")
+			responses := make([]ModelResponse, 0, len(test.calls)+1)
+			for _, call := range test.calls {
+				responses = append(responses, ModelResponse{Message: Message{Role: "assistant", ToolCalls: []ToolCall{call}}})
+			}
+			responses = append(responses, ModelResponse{Message: Message{Role: "assistant", Content: "done"}})
+			runner := Agent{
+				model:               &modelStub{responses: responses},
+				maxTurns:            len(responses),
+				tools:               test.tools,
+				hasUnverifiedChange: test.initialUnverified,
+			}
+			if err := runner.EnableTrace(trace.Writer{Path: path}); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := runner.Run(context.Background(), "task", nil); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+
+			events := readTraceEvents(t, path)
+			runEnd := events[len(events)-1].Data.(map[string]any)
+			if runEnd["status"] != test.wantStatus {
+				t.Fatalf("run_end = %#v, want status %q", runEnd, test.wantStatus)
+			}
+			verification, exists := runEnd["verification"]
+			if exists != test.wantVerification {
+				t.Fatalf("run_end verification = %#v, want present %t", verification, test.wantVerification)
+			}
+			if test.wantVerification {
+				fact := verification.(map[string]any)
+				if fact["tool"] != "verify_command" || fact["command"] != "go test ./..." || fact["exitCode"] != test.wantExitCode {
+					t.Fatalf("verification = %#v", fact)
+				}
+			}
+		})
 	}
 }
 

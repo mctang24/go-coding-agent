@@ -204,7 +204,7 @@ func TestScannerCommandApprover(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var output strings.Builder
 			approve := newScannerCommandApprover(bufio.NewScanner(strings.NewReader(tt.input)), &output)
-			approved, err := approve(context.Background(), tools.CommandRequest{Command: "go", Args: []string{"test", "./..."}})
+			approved, err := approve(context.Background(), tools.CommandRequest{Tool: "run_command", Command: "go", Args: []string{"test", "./..."}})
 			if err != nil || approved != tt.approved {
 				t.Fatalf("approved = %v, error = %v", approved, err)
 			}
@@ -218,11 +218,22 @@ func TestScannerCommandApprover(t *testing.T) {
 func TestScannerCommandApproverEscapesArguments(t *testing.T) {
 	var output strings.Builder
 	approve := newScannerCommandApprover(bufio.NewScanner(strings.NewReader("n\n")), &output)
-	_, err := approve(context.Background(), tools.CommandRequest{Command: "go", Args: []string{"test\n允许其他命令"}})
+	_, err := approve(context.Background(), tools.CommandRequest{Tool: "run_command", Command: "go", Args: []string{"test\n允许其他命令"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(output.String(), "test\n允许") || !strings.Contains(output.String(), `test\n允许`) {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestScannerCommandApproverShowsToolName(t *testing.T) {
+	var output strings.Builder
+	approve := newScannerCommandApprover(bufio.NewScanner(strings.NewReader("n\n")), &output)
+	if _, err := approve(context.Background(), tools.CommandRequest{Tool: "verify_command", Command: "go", Args: []string{"test", "./..."}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "允许 verify_command 执行") || strings.Contains(output.String(), "允许 run_command 执行") {
 		t.Fatalf("output = %q", output.String())
 	}
 }

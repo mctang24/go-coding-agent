@@ -19,6 +19,7 @@ type WriteRequest struct {
 type WriteApprover func(context.Context, WriteRequest) (bool, error)
 
 type CommandRequest struct {
+	Tool    string
 	Command string
 	Args    []string
 }
@@ -102,6 +103,15 @@ func (workspaceTools *WorkspaceTools) Definitions() []Tool {
 				"args":    ArraySchema(StringSchema(""), "Arguments passed directly to the executable."),
 			}, "command", "args"),
 			Execute: workspaceTools.executeRunCommand,
+		},
+		{
+			Name:        "verify_command",
+			Description: "Run a completion check directly in the agent working directory. Use this instead of run_command for tests, linters, builds, or other commands whose exit code verifies the completed work. It has the same execution restrictions and may still have side effects.",
+			Parameters: ObjectSchema(map[string]Schema{
+				"command": StringSchema("Executable name or path."),
+				"args":    ArraySchema(StringSchema(""), "Arguments passed directly to the executable."),
+			}, "command", "args"),
+			Execute: workspaceTools.executeVerifyCommand,
 		},
 	}
 }

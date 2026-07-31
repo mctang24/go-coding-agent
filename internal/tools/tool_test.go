@@ -8,12 +8,12 @@ import (
 
 func TestFileToolDefinitions(t *testing.T) {
 	registered := NewWorkspaceTools().Definitions()
-	if len(registered) != 6 {
-		t.Fatalf("Tools() length = %d, want 6", len(registered))
+	if len(registered) != 7 {
+		t.Fatalf("Tools() length = %d, want 7", len(registered))
 	}
 	wantNames := map[string]bool{
 		"list_files": false, "read_file": false, "search_text": false,
-		"edit_file": false, "write_file": false, "run_command": false,
+		"edit_file": false, "write_file": false, "run_command": false, "verify_command": false,
 	}
 	for _, tool := range registered {
 		if _, ok := wantNames[tool.Name]; !ok {
@@ -29,7 +29,7 @@ func TestFileToolDefinitions(t *testing.T) {
 		if tool.Parameters.Type != "object" || tool.Parameters.AdditionalProperties == nil || *tool.Parameters.AdditionalProperties {
 			t.Fatalf("tool %q parameters = %#v", tool.Name, tool.Parameters)
 		}
-		if tool.Name != "run_command" {
+		if tool.Name != "run_command" && tool.Name != "verify_command" {
 			description := tool.Parameters.Properties["path"].Description
 			if !strings.Contains(description, `Use "." for the root`) || !strings.Contains(description, "Do not use absolute paths") {
 				t.Fatalf("tool %q path description does not require relative paths", tool.Name)

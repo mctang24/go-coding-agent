@@ -62,7 +62,7 @@ func newScannerCommandApprover(scanner *bufio.Scanner, output io.Writer) tools.C
 		if err != nil {
 			return false, fmt.Errorf("format command approval: %w", err)
 		}
-		return scanApproval(scanner, output, fmt.Sprintf("允许 run_command 执行 %s？[Y/n] ", command))
+		return scanApproval(scanner, output, fmt.Sprintf("允许 %s 执行 %s？[Y/n] ", request.Tool, command))
 	}
 }
 

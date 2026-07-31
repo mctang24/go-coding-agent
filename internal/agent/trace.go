@@ -82,7 +82,7 @@ func (current *runTrace) append(event trace.Event) error {
 	return current.writer.Append(event)
 }
 
-func (current *runTrace) finish(runErr error) error {
+func (current *runTrace) finish(runErr error, hasUnverifiedChange bool, verification *verificationFact) error {
 	if current == nil {
 		return nil
 	}
@@ -90,6 +90,11 @@ func (current *runTrace) finish(runErr error) error {
 	if runErr != nil {
 		data["status"] = "error"
 		data["error"] = runErr.Error()
+	} else if hasUnverifiedChange {
+		data["status"] = "incomplete"
+	}
+	if verification != nil {
+		data["verification"] = verification
 	}
 	return current.append(trace.Event{
 		Timestamp:  time.Now().UTC(),
