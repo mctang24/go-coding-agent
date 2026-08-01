@@ -1,6 +1,6 @@
 # Go Coding Agent
 
-一个用 Go 从零实现的 Coding Agent，能够检索代码、修改文件并运行命令验证结果。
+一个用 Go 从零实现的 Coding Agent，也是面向 Harness Engineering 的可运行实践：通过 Agent Runtime、受控工具和验证闭环稳定完成代码任务。
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
 [![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek-4D6BFE)](https://www.deepseek.com/)
@@ -10,6 +10,7 @@
 
 ## 核心亮点
 
+- **Harness Engineering 核心能力**：将 Agent Runtime、受控工具、安全边界、上下文管理、完成性验证和 trace 组合为最小可运行 Harness。
 - **零第三方 Go 依赖**：使用标准库实现 Agent loop、流式模型交互和 tool call 增量聚合，不依赖 Agent 框架或模型 SDK。
 - **完整 Coding 闭环**：内置代码检索、文件读写和命令执行工具，并通过端到端的「定位 → 修改 → 测试」任务验证。
 - **安全文件修改**：提供读取前置、哈希冲突检测、原子替换、工作区边界和符号链接越界防护，修改文件或执行命令前均需人工确认。

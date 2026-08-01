@@ -1,6 +1,6 @@
 # Go Coding Agent
 
-A coding agent built from scratch in Go that can inspect code, edit files, and run commands to verify its changes.
+A coding agent built from scratch in Go and a working Harness Engineering implementation that combines an agent runtime, controlled tools, and a verification loop for reliable coding tasks.
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
 [![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek-4D6BFE)](https://www.deepseek.com/)
@@ -10,6 +10,7 @@ A coding agent built from scratch in Go that can inspect code, edit files, and r
 
 ## Highlights
 
+- **Core Harness Engineering capabilities**: combines the agent runtime, controlled tools, safety boundaries, context management, completion verification, and tracing into a minimal working harness.
 - **Zero third-party Go dependencies**: built with the standard library, including the agent loop, streaming model interactions, and incremental tool-call assembly—without an agent framework or model SDK.
 - **Complete coding workflow**: built-in tools for code search, file operations, and command execution, validated through an end-to-end bug-fix task.
 - **Safe file modifications**: read-before-write enforcement, hash-based conflict detection, atomic replacement, workspace boundaries, symlink escape protection, and explicit approval before file changes or command execution.
