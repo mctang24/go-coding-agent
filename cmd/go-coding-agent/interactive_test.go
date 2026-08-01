@@ -145,9 +145,34 @@ func TestRunTaskReturnsOutputError(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	err = runTask(context.Background(), runner, "task", failingWriter{})
+	result, err := runTask(context.Background(), runner, "task", failingWriter{})
 	if err == nil || !strings.Contains(err.Error(), "write failed") {
 		t.Fatalf("runTask() error = %v, want write failure", err)
+	}
+	if result.Status != agent.RunStatusError {
+		t.Fatalf("runTask() status = %q, want error", result.Status)
+	}
+}
+
+func TestRunInteractiveReportsIncomplete(t *testing.T) {
+	model := &interactiveModel{responses: []agent.ModelResponse{
+		{Message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{{ID: "write", Name: "write_file", Arguments: `{"path":"new.txt","content":"data"}`}}}},
+		{Message: agent.Message{Role: "assistant", Content: "done"}},
+	}}
+	runner, err := agent.NewAgent(t.TempDir(), model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.SetWriteApprover(func(context.Context, tools.WriteRequest) (bool, error) { return true, nil })
+	var output strings.Builder
+	var errorOutput strings.Builder
+
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("create file\n/exit\n")), &output, &errorOutput)
+	if err != nil {
+		t.Fatalf("runInteractive() error = %v", err)
+	}
+	if !strings.Contains(errorOutput.String(), "task incomplete: changes are not verified") {
+		t.Fatalf("error output = %q", errorOutput.String())
 	}
 }
 

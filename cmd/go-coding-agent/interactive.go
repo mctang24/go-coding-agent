@@ -11,12 +11,11 @@ import (
 	"strings"
 )
 
-func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Writer) error {
-	_, err := runner.Run(ctx, task, func(delta string) error {
+func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Writer) (agent.RunResult, error) {
+	return runner.Run(ctx, task, func(delta string) error {
 		_, err := io.WriteString(output, delta)
 		return err
 	})
-	return err
 }
 
 // runInteractive runs an in-memory conversation until the user exits.
@@ -47,11 +46,14 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 			continue
 		}
 
-		err := runTask(ctx, runner, task, output)
+		result, err := runTask(ctx, runner, task, output)
 		fmt.Fprintln(output)
 		if err != nil {
 			fmt.Fprintln(errorOutput, err)
 			continue
+		}
+		if result.Status == agent.RunStatusIncomplete {
+			fmt.Fprintln(errorOutput, "task incomplete: changes are not verified")
 		}
 	}
 }

@@ -154,7 +154,7 @@ func TestAgentRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.Content != "done" {
+	if result.Content != "done" || result.Status != RunStatusSuccess {
 		t.Fatalf("Run() = %#v", result)
 	}
 	if streamed.String() != "checkingdone" {
@@ -293,7 +293,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 		initialUnverified bool
 		calls             []ToolCall
 		tools             []tools.Tool
-		wantStatus        string
+		wantStatus        RunStatus
 		wantVerification  bool
 		wantExitCode      float64
 	}{
@@ -303,7 +303,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			tools: []tools.Tool{{Name: "edit_file", Execute: func(context.Context, string, string) (string, error) {
 				return "edited", nil
 			}}},
-			wantStatus: "incomplete",
+			wantStatus: RunStatusIncomplete,
 		},
 		{
 			name:              "successful verification completes changes",
@@ -312,7 +312,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
 				return `{"exit_code":0,"stdout":"ok","stderr":""}`, nil
 			}}},
-			wantStatus:       "success",
+			wantStatus:       RunStatusSuccess,
 			wantVerification: true,
 			wantExitCode:     0,
 		},
@@ -323,7 +323,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
 				return `{"exit_code":1,"stdout":"","stderr":"failed"}`, nil
 			}}},
-			wantStatus:       "incomplete",
+			wantStatus:       RunStatusIncomplete,
 			wantVerification: true,
 			wantExitCode:     1,
 		},
@@ -341,7 +341,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 					return `{"exit_code":0,"stdout":"","stderr":""}`, nil
 				}},
 			},
-			wantStatus: "incomplete",
+			wantStatus: RunStatusIncomplete,
 		},
 	}
 
@@ -363,13 +363,17 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if _, err := runner.Run(context.Background(), "task", nil); err != nil {
+			result, err := runner.Run(context.Background(), "task", nil)
+			if err != nil {
 				t.Fatalf("Run() error = %v", err)
+			}
+			if result.Status != test.wantStatus {
+				t.Fatalf("Run() status = %q, want %q", result.Status, test.wantStatus)
 			}
 
 			events := readTraceEvents(t, path)
 			runEnd := events[len(events)-1].Data.(map[string]any)
-			if runEnd["status"] != test.wantStatus {
+			if runEnd["status"] != string(test.wantStatus) {
 				t.Fatalf("run_end = %#v, want status %q", runEnd, test.wantStatus)
 			}
 			verification, exists := runEnd["verification"]
@@ -448,8 +452,12 @@ func TestAgentRunTraceError(t *testing.T) {
 		t.Fatalf("EnableTrace() error = %v", err)
 	}
 
-	if _, err := agent.Run(context.Background(), "task", nil); err == nil {
+	result, err := agent.Run(context.Background(), "task", nil)
+	if err == nil {
 		t.Fatal("Run() error = nil")
+	}
+	if result.Status != RunStatusError {
+		t.Fatalf("Run() status = %q, want error", result.Status)
 	}
 
 	events := readTraceEvents(t, path)
@@ -733,9 +741,12 @@ func TestAgentRunErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.agent.Run(tt.ctx, tt.task, nil)
+			result, err := tt.agent.Run(tt.ctx, tt.task, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Run() error = %v, want to contain %q", err, tt.wantErr)
+			}
+			if result.Status != RunStatusError {
+				t.Fatalf("Run() status = %q, want error", result.Status)
 			}
 		})
 	}

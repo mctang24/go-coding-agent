@@ -55,9 +55,25 @@ func main() {
 		}
 		return
 	}
-	if err := runTask(ctx, runner, config.task, os.Stdout); err != nil {
+	result, err := runTask(ctx, runner, config.task, os.Stdout)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(exitCode(result.Status))
 	}
 	fmt.Println()
+	if result.Status == agent.RunStatusIncomplete {
+		fmt.Fprintln(os.Stderr, "task incomplete: changes are not verified")
+		os.Exit(exitCode(result.Status))
+	}
+}
+
+func exitCode(status agent.RunStatus) int {
+	switch status {
+	case agent.RunStatusSuccess:
+		return 0
+	case agent.RunStatusIncomplete:
+		return 1
+	default:
+		return 2
+	}
 }

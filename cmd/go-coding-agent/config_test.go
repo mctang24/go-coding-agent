@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go-coding-agent/internal/agent"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,22 @@ func TestSystemPromptRequiresVerification(t *testing.T) {
 	} {
 		if !strings.Contains(systemPrompt, requirement) {
 			t.Errorf("systemPrompt missing %q", requirement)
+		}
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	tests := []struct {
+		status agent.RunStatus
+		want   int
+	}{
+		{status: agent.RunStatusSuccess, want: 0},
+		{status: agent.RunStatusIncomplete, want: 1},
+		{status: agent.RunStatusError, want: 2},
+	}
+	for _, test := range tests {
+		if got := exitCode(test.status); got != test.want {
+			t.Errorf("exitCode(%q) = %d, want %d", test.status, got, test.want)
 		}
 	}
 }

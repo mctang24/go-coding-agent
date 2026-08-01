@@ -42,7 +42,16 @@ func (agent *Agent) EnableTrace(writer trace.Writer) error {
 
 type RunResult struct {
 	Content string
+	Status  RunStatus
 }
+
+type RunStatus string
+
+const (
+	RunStatusSuccess    RunStatus = "success"
+	RunStatusIncomplete RunStatus = "incomplete"
+	RunStatusError      RunStatus = "error"
+)
 
 // NewAgent creates an agent with workspace tools.
 func NewAgent(root string, model Model, instructions string, maxTurns ...int) (*Agent, error) {
@@ -88,6 +97,21 @@ func (agent *Agent) SetCommandApprover(approver tools.CommandApprover) {
 
 // Run continues the conversation until the model returns a final response.
 func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaHandler) (result RunResult, runErr error) {
+	var currentTrace *runTrace
+	defer func() {
+		switch {
+		case runErr != nil:
+			result.Status = RunStatusError
+		case agent.hasUnverifiedChange:
+			result.Status = RunStatusIncomplete
+		default:
+			result.Status = RunStatusSuccess
+		}
+		if err := currentTrace.finish(result.Status, runErr, agent.lastVerification); err != nil {
+			reportTraceError("run_end", err)
+		}
+	}()
+
 	if task == "" {
 		return RunResult{}, fmt.Errorf("agent run: task is empty")
 	}
@@ -108,11 +132,6 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 	if err != nil {
 		reportTraceError("run_start", err)
 	}
-	defer func() {
-		if err := currentTrace.finish(runErr, agent.hasUnverifiedChange, agent.lastVerification); err != nil {
-			reportTraceError("run_end", err)
-		}
-	}()
 
 	messages := agent.messages
 	messages = append(messages, Message{Role: "user", Content: task})

@@ -82,16 +82,13 @@ func (current *runTrace) append(event trace.Event) error {
 	return current.writer.Append(event)
 }
 
-func (current *runTrace) finish(runErr error, hasUnverifiedChange bool, verification *verificationFact) error {
+func (current *runTrace) finish(status RunStatus, runErr error, verification *verificationFact) error {
 	if current == nil {
 		return nil
 	}
-	data := map[string]any{"status": "success"}
+	data := map[string]any{"status": status}
 	if runErr != nil {
-		data["status"] = "error"
 		data["error"] = runErr.Error()
-	} else if hasUnverifiedChange {
-		data["status"] = "incomplete"
 	}
 	if verification != nil {
 		data["verification"] = verification
