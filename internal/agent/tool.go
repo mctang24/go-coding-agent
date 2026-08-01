@@ -51,6 +51,22 @@ func (agent *Agent) executeToolCall(ctx context.Context, call ToolCall) (ToolRes
 	if err != nil {
 		return ToolResult{ToolCallID: call.ID, Content: err.Error(), IsError: true}, nil
 	}
+	if call.Name == "finish_task" {
+		var finishResult tools.FinishTaskResult
+		if err := json.Unmarshal([]byte(result), &finishResult); err != nil {
+			return ToolResult{}, fmt.Errorf("agent execute finish_task: decode result: %w", err)
+		}
+		switch {
+		case finishResult.Verification == nil && agent.hasUnverifiedChange:
+			return ToolResult{
+				ToolCallID: call.ID,
+				Content:    "finish_task requires command and args because changes are not verified",
+				IsError:    true,
+			}, nil
+		case finishResult.Verification != nil && finishResult.Verification.ExitCode != 0:
+			return ToolResult{ToolCallID: call.ID, Content: result, IsError: true}, nil
+		}
+	}
 
 	return ToolResult{ToolCallID: call.ID, Content: result}, nil
 }
@@ -65,7 +81,7 @@ func (agent *Agent) recordToolExecution(call ToolCall, output string, executionE
 		if executionErr == nil || failedAfterCommandStart(executionErr) {
 			agent.invalidateVerification()
 		}
-	case "verify_command":
+	case "finish_task":
 		agent.recordVerification(call.Arguments, output, executionErr)
 	}
 }
@@ -80,12 +96,15 @@ func (agent *Agent) recordVerification(arguments, output string, executionErr er
 		return
 	}
 
-	var input tools.CommandInput
+	var input tools.FinishTaskInput
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 		return
 	}
+	if input.Command == "" {
+		return
+	}
 	fact := &verificationFact{
-		Tool:    "verify_command",
+		Tool:    "finish_task",
 		Command: strings.Join(append([]string{input.Command}, input.Args...), " "),
 	}
 	if executionErr != nil {
@@ -95,12 +114,15 @@ func (agent *Agent) recordVerification(arguments, output string, executionErr er
 		return
 	}
 
-	var result tools.CommandResult
+	var result tools.FinishTaskResult
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		return
 	}
-	fact.ExitCode = &result.ExitCode
-	agent.hasUnverifiedChange = result.ExitCode != 0
+	if result.Verification == nil {
+		return
+	}
+	fact.ExitCode = &result.Verification.ExitCode
+	agent.hasUnverifiedChange = result.Verification.ExitCode != 0
 	agent.lastVerification = fact
 }
 

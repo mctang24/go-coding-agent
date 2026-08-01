@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"go-coding-agent/internal/tools"
 	"go-coding-agent/internal/trace"
@@ -95,14 +96,15 @@ func (agent *Agent) SetCommandApprover(approver tools.CommandApprover) {
 	}
 }
 
-// Run continues the conversation until the model returns a final response.
+// Run continues the conversation until the model completes or stops the task.
 func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaHandler) (result RunResult, runErr error) {
 	var currentTrace *runTrace
+	taskFinished := false
 	defer func() {
 		switch {
 		case runErr != nil:
 			result.Status = RunStatusError
-		case agent.hasUnverifiedChange:
+		case !taskFinished || agent.hasUnverifiedChange:
 			result.Status = RunStatusIncomplete
 		default:
 			result.Status = RunStatusSuccess
@@ -163,22 +165,82 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			agent.tokenUsage = tokenUsage
 			return RunResult{Content: response.Message.Content}, nil
 		}
-		if turn+1 == agent.maxTurns {
-			return RunResult{}, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
-		}
 
-		results := make([]ToolResult, 0, len(response.Message.ToolCalls))
-		for _, call := range response.Message.ToolCalls {
-			result, err := agent.callTool(ctx, call, currentTrace, turn+1)
-			if err != nil {
-				return RunResult{}, err
-			}
-			results = append(results, result)
+		toolResults, completed, err := agent.executeToolRound(ctx, response.Message.ToolCalls, currentTrace, turn+1)
+		if err != nil {
+			return RunResult{}, err
 		}
-		messages = append(messages, Message{Role: "tool", ToolResults: results})
+		messages = append(messages, Message{Role: "tool", ToolResults: toolResults})
+		if completed != nil {
+			if onTextDelta != nil {
+				if err := onTextDelta(completed.Result); err != nil {
+					return RunResult{}, fmt.Errorf("agent run: write finish_task result: %w", err)
+				}
+			}
+			agent.messages = messages
+			agent.tokenUsage = response.Usage.TotalTokens
+			taskFinished = true
+			return RunResult{Content: completed.Result}, nil
+		}
 	}
 
 	return RunResult{}, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
+}
+
+func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, current *runTrace, turn int) ([]ToolResult, *tools.FinishTaskResult, error) {
+	if hasMixedFinishTask(calls) {
+		return rejectedToolResults(calls, "finish_task must be the only tool call in a response"), nil, nil
+	}
+
+	if len(calls) == 1 && calls[0].Name == "finish_task" {
+		result, err := agent.callTool(ctx, calls[0], current, turn)
+		if err != nil {
+			return nil, nil, err
+		}
+		if result.IsError {
+			return []ToolResult{result}, nil, nil
+		}
+
+		var completed tools.FinishTaskResult
+		if err := json.Unmarshal([]byte(result.Content), &completed); err != nil {
+			return nil, nil, fmt.Errorf("agent run: decode finish_task result: %w", err)
+		}
+		return []ToolResult{result}, &completed, nil
+	}
+
+	if turn == agent.maxTurns {
+		return nil, nil, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
+	}
+
+	results := make([]ToolResult, 0, len(calls))
+	for _, call := range calls {
+		result, err := agent.callTool(ctx, call, current, turn)
+		if err != nil {
+			return nil, nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil, nil
+}
+
+func hasMixedFinishTask(calls []ToolCall) bool {
+	if len(calls) < 2 {
+		return false
+	}
+	for _, call := range calls {
+		if call.Name == "finish_task" {
+			return true
+		}
+	}
+	return false
+}
+
+func rejectedToolResults(calls []ToolCall, content string) []ToolResult {
+	results := make([]ToolResult, 0, len(calls))
+	for _, call := range calls {
+		results = append(results, ToolResult{ToolCallID: call.ID, Content: content, IsError: true})
+	}
+	return results
 }
 
 func (agent *Agent) callModel(ctx context.Context, request ModelRequest, onTextDelta TextDeltaHandler, current *runTrace, turn int) (ModelResponse, error) {

@@ -132,18 +132,47 @@ func (stream *stubModelStream) Recv() (ModelStreamEvent, error) {
 
 func (stream *stubModelStream) Close() error { return nil }
 
+func finishTaskCall(id, result string) ToolCall {
+	arguments, err := json.Marshal(tools.FinishTaskInput{Result: result})
+	if err != nil {
+		panic(err)
+	}
+	return ToolCall{ID: id, Name: "finish_task", Arguments: string(arguments)}
+}
+
+func verifiedFinishTaskCall(id, result string) ToolCall {
+	arguments, err := json.Marshal(tools.FinishTaskInput{Result: result, Command: "go", Args: []string{"test", "./..."}})
+	if err != nil {
+		panic(err)
+	}
+	return ToolCall{ID: id, Name: "finish_task", Arguments: string(arguments)}
+}
+
+func finishTaskTool(result string, verification *tools.CommandResult) tools.Tool {
+	output, err := json.Marshal(tools.FinishTaskResult{Result: result, Verification: verification})
+	if err != nil {
+		panic(err)
+	}
+	return tools.Tool{Name: "finish_task", Execute: func(context.Context, string, string) (string, error) {
+		return string(output), nil
+	}}
+}
+
 func TestAgentRun(t *testing.T) {
 	model := &modelStub{responses: []ModelResponse{
 		{Message: Message{Role: "assistant", Content: "checking", ToolCalls: []ToolCall{{ID: "call_1", Name: "echo", Arguments: `{}`}}}},
-		{Message: Message{Role: "assistant", Content: "done"}},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish", "done")}}},
 	}}
 	agent := Agent{
 		model:        model,
 		maxTurns:     2,
 		instructions: "inspect",
-		tools: []tools.Tool{{Name: "echo", Execute: func(context.Context, string, string) (string, error) {
-			return "result", nil
-		}}},
+		tools: []tools.Tool{
+			{Name: "echo", Execute: func(context.Context, string, string) (string, error) {
+				return "result", nil
+			}},
+			finishTaskTool("done", nil),
+		},
 	}
 
 	var streamed strings.Builder
@@ -169,6 +198,101 @@ func TestAgentRun(t *testing.T) {
 	toolMessage := model.requests[1].Messages[2]
 	if toolMessage.Role != "tool" || len(toolMessage.ToolResults) != 1 || toolMessage.ToolResults[0].Content != "result" {
 		t.Fatalf("tool message = %#v", toolMessage)
+	}
+}
+
+func TestAgentRunStopsWithoutFinishIncomplete(t *testing.T) {
+	runner := Agent{
+		model:    &modelStub{responses: []ModelResponse{{Message: Message{Role: "assistant", Content: "not finished"}}}},
+		maxTurns: 1,
+	}
+
+	result, err := runner.Run(context.Background(), "task", nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Content != "not finished" || result.Status != RunStatusIncomplete {
+		t.Fatalf("Run() = %#v", result)
+	}
+}
+
+func TestAgentRunRejectsMixedFinishTask(t *testing.T) {
+	executed := false
+	model := &modelStub{responses: []ModelResponse{
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{
+			{ID: "edit", Name: "edit_file", Arguments: `{}`},
+			finishTaskCall("mixed_finish", "too early"),
+		}}},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish", "done")}}},
+	}}
+	runner := Agent{
+		model:    model,
+		maxTurns: 2,
+		tools: []tools.Tool{
+			{Name: "edit_file", Execute: func(context.Context, string, string) (string, error) {
+				executed = true
+				return "edited", nil
+			}},
+			finishTaskTool("done", nil),
+		},
+	}
+
+	result, err := runner.Run(context.Background(), "task", nil)
+	if err != nil || result.Status != RunStatusSuccess {
+		t.Fatalf("Run() = %#v, error = %v", result, err)
+	}
+	if executed {
+		t.Fatal("mixed edit_file was executed")
+	}
+	results := model.requests[1].Messages[2].ToolResults
+	if len(results) != 2 || !results[0].IsError || !results[1].IsError || !strings.Contains(results[0].Content, "only tool call") {
+		t.Fatalf("mixed tool results = %#v", results)
+	}
+}
+
+func TestAgentRunKeepsFinishToolResultInHistory(t *testing.T) {
+	model := &modelStub{responses: []ModelResponse{
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish_1", "first")}}},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish_2", "second")}}},
+	}}
+	runner, err := NewAgent(t.TempDir(), model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := runner.Run(context.Background(), "first task", nil)
+	if err != nil || first.Status != RunStatusSuccess || first.Content != "first" {
+		t.Fatalf("first Run() = %#v, error = %v", first, err)
+	}
+	second, err := runner.Run(context.Background(), "second task", nil)
+	if err != nil || second.Status != RunStatusSuccess || second.Content != "second" {
+		t.Fatalf("second Run() = %#v, error = %v", second, err)
+	}
+
+	messages := model.requests[1].Messages
+	if len(messages) != 4 || messages[1].ToolCalls[0].ID != "finish_1" || messages[2].ToolResults[0].ToolCallID != "finish_1" || messages[3].Content != "second task" {
+		t.Fatalf("second request messages = %#v", messages)
+	}
+}
+
+func TestAgentRunFinishUsesReportedTokenUsage(t *testing.T) {
+	model := &modelStub{responses: []ModelResponse{{
+		Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish", "done")}},
+		Usage:   TokenUsage{PromptTokens: 12, CompletionTokens: 3, TotalTokens: 15},
+	}}}
+	runner, err := NewAgent(t.TempDir(), model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runner.Run(context.Background(), "task", nil); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if runner.tokenUsage != 15 {
+		t.Fatalf("token usage = %d, want 15", runner.tokenUsage)
+	}
+	if model.estimateCalls != 0 {
+		t.Fatalf("estimate calls = %d, want 0", model.estimateCalls)
 	}
 }
 
@@ -199,12 +323,13 @@ func TestAgentRunAutomaticallyCompactsAtThreshold(t *testing.T) {
 	model := &modelStub{
 		responses: []ModelResponse{
 			{Message: Message{Role: "assistant", Content: validSummary()}},
-			{Message: Message{Role: "assistant", Content: "done"}},
+			{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish", "done")}}},
 		},
 	}
 	runner := Agent{
 		model:    model,
 		maxTurns: 1,
+		tools:    []tools.Tool{finishTaskTool("done", nil)},
 		messages: append(compactableHistory(),
 			Message{Role: "user", Content: "fourth question"},
 			Message{Role: "assistant", Content: "fourth answer"},
@@ -275,6 +400,9 @@ func TestAgentRunReturnsWriteDenialToModel(t *testing.T) {
 	if err != nil || result.Content != "cancelled" {
 		t.Fatalf("result = %#v, error = %v", result, err)
 	}
+	if result.Status != RunStatusIncomplete {
+		t.Fatalf("status = %q, want incomplete", result.Status)
+	}
 	if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
 		t.Fatalf("new file stat error = %v", err)
 	}
@@ -306,42 +434,35 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			wantStatus: RunStatusIncomplete,
 		},
 		{
-			name:              "successful verification completes changes",
+			name:              "finish with successful verification completes changes",
 			initialUnverified: true,
-			calls:             []ToolCall{{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`}},
-			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
-				return `{"exit_code":0,"stdout":"ok","stderr":""}`, nil
-			}}},
-			wantStatus:       RunStatusSuccess,
-			wantVerification: true,
-			wantExitCode:     0,
+			calls:             []ToolCall{verifiedFinishTaskCall("finish", "done")},
+			tools:             []tools.Tool{finishTaskTool("done", &tools.CommandResult{Stdout: "ok"})},
+			wantStatus:        RunStatusSuccess,
+			wantVerification:  true,
+			wantExitCode:      0,
 		},
 		{
-			name:              "failed verification remains incomplete",
+			name:              "failed finish verification remains incomplete",
 			initialUnverified: true,
-			calls:             []ToolCall{{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`}},
-			tools: []tools.Tool{{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
-				return `{"exit_code":1,"stdout":"","stderr":"failed"}`, nil
-			}}},
-			wantStatus:       RunStatusIncomplete,
-			wantVerification: true,
-			wantExitCode:     1,
+			calls:             []ToolCall{verifiedFinishTaskCall("finish", "done")},
+			tools:             []tools.Tool{finishTaskTool("done", &tools.CommandResult{ExitCode: 1, Stderr: "failed"})},
+			wantStatus:        RunStatusIncomplete,
+			wantVerification:  true,
+			wantExitCode:      1,
 		},
 		{
-			name: "command after verification invalidates evidence",
-			calls: []ToolCall{
-				{ID: "verify", Name: "verify_command", Arguments: `{"command":"go","args":["test","./..."]}`},
-				{ID: "run", Name: "run_command", Arguments: `{"command":"go","args":["generate"]}`},
-			},
-			tools: []tools.Tool{
-				{Name: "verify_command", Execute: func(context.Context, string, string) (string, error) {
-					return `{"exit_code":0,"stdout":"ok","stderr":""}`, nil
-				}},
-				{Name: "run_command", Execute: func(context.Context, string, string) (string, error) {
-					return `{"exit_code":0,"stdout":"","stderr":""}`, nil
-				}},
-			},
-			wantStatus: RunStatusIncomplete,
+			name:              "finish without required verification remains incomplete",
+			initialUnverified: true,
+			calls:             []ToolCall{finishTaskCall("finish", "done")},
+			tools:             []tools.Tool{finishTaskTool("done", nil)},
+			wantStatus:        RunStatusIncomplete,
+		},
+		{
+			name:       "finish without changes succeeds",
+			calls:      []ToolCall{finishTaskCall("finish", "done")},
+			tools:      []tools.Tool{finishTaskTool("done", nil)},
+			wantStatus: RunStatusSuccess,
 		},
 	}
 
@@ -352,7 +473,9 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			for _, call := range test.calls {
 				responses = append(responses, ModelResponse{Message: Message{Role: "assistant", ToolCalls: []ToolCall{call}}})
 			}
-			responses = append(responses, ModelResponse{Message: Message{Role: "assistant", Content: "done"}})
+			if test.wantStatus == RunStatusIncomplete {
+				responses = append(responses, ModelResponse{Message: Message{Role: "assistant", Content: "done"}})
+			}
 			runner := Agent{
 				model:               &modelStub{responses: responses},
 				maxTurns:            len(responses),
@@ -382,7 +505,7 @@ func TestAgentRunEndVerificationStatus(t *testing.T) {
 			}
 			if test.wantVerification {
 				fact := verification.(map[string]any)
-				if fact["tool"] != "verify_command" || fact["command"] != "go test ./..." || fact["exitCode"] != test.wantExitCode {
+				if fact["tool"] != "finish_task" || fact["command"] != "go test ./..." || fact["exitCode"] != test.wantExitCode {
 					t.Fatalf("verification = %#v", fact)
 				}
 			}
@@ -394,15 +517,18 @@ func TestAgentRunTrace(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "trace.jsonl")
 	model := &modelStub{responses: []ModelResponse{
 		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "fail", Arguments: `{}`}}}},
-		{Message: Message{Role: "assistant", Content: "done"}},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{finishTaskCall("finish", "done")}}},
 	}}
 	agent := Agent{
 		model:        model,
 		maxTurns:     2,
 		instructions: "inspect carefully",
-		tools: []tools.Tool{{Name: "fail", Description: "always fails", Parameters: tools.ObjectSchema(nil), Execute: func(context.Context, string, string) (string, error) {
-			return "", errors.New("tool failed")
-		}}},
+		tools: []tools.Tool{
+			{Name: "fail", Description: "always fails", Parameters: tools.ObjectSchema(nil), Execute: func(context.Context, string, string) (string, error) {
+				return "", errors.New("tool failed")
+			}},
+			finishTaskTool("done", nil),
+		},
 	}
 	if err := agent.EnableTrace(trace.Writer{Path: path}); err != nil {
 		t.Fatalf("EnableTrace() error = %v", err)
@@ -413,7 +539,7 @@ func TestAgentRunTrace(t *testing.T) {
 	}
 
 	events := readTraceEvents(t, path)
-	wantTypes := []string{"run_start", "model_request", "model_response", "tool_call", "tool_result", "model_request", "model_response", "run_end"}
+	wantTypes := []string{"run_start", "model_request", "model_response", "tool_call", "tool_result", "model_request", "model_response", "tool_call", "tool_result", "run_end"}
 	if len(events) != len(wantTypes) {
 		t.Fatalf("trace event count = %d, want %d", len(events), len(wantTypes))
 	}
@@ -432,14 +558,14 @@ func TestAgentRunTrace(t *testing.T) {
 	runStart := events[0].Data.(map[string]any)
 	traceTools := runStart["tools"].([]any)
 	traceTool := traceTools[0].(map[string]any)
-	if len(runStart) != 3 || runStart["task"] != "task" || runStart["instructions"] != "inspect carefully" || len(traceTools) != 1 || traceTool["name"] != "fail" || traceTool["description"] != "always fails" {
+	if len(runStart) != 3 || runStart["task"] != "task" || runStart["instructions"] != "inspect carefully" || len(traceTools) != 2 || traceTool["name"] != "fail" || traceTool["description"] != "always fails" {
 		t.Fatalf("run start data = %#v", runStart)
 	}
 	toolResult := events[4].Data.(map[string]any)
 	if toolResult["isError"] != true || !strings.Contains(toolResult["content"].(string), "tool failed") {
 		t.Fatalf("tool result data = %#v", toolResult)
 	}
-	runEnd := events[7].Data.(map[string]any)
+	runEnd := events[9].Data.(map[string]any)
 	if runEnd["status"] != "success" {
 		t.Fatalf("run end data = %#v", runEnd)
 	}

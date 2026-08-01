@@ -53,7 +53,7 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 			continue
 		}
 		if result.Status == agent.RunStatusIncomplete {
-			fmt.Fprintln(errorOutput, "task incomplete: changes are not verified")
+			fmt.Fprintln(errorOutput, "task incomplete: completion was not confirmed or changes are not verified")
 		}
 	}
 }

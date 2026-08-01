@@ -51,10 +51,18 @@ func (stream *interactiveStream) Recv() (agent.ModelStreamEvent, error) {
 
 func (stream *interactiveStream) Close() error { return nil }
 
+func finishedResponse(id, result string) agent.ModelResponse {
+	return agent.ModelResponse{Message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{{
+		ID:        id,
+		Name:      "finish_task",
+		Arguments: `{"result":"` + result + `"}`,
+	}}}}
+}
+
 func TestRunInteractive(t *testing.T) {
 	model := &interactiveModel{responses: []agent.ModelResponse{
-		{Message: agent.Message{Role: "assistant", Content: "first answer"}},
-		{Message: agent.Message{Role: "assistant", Content: "second answer"}},
+		finishedResponse("finish_1", "first answer"),
+		finishedResponse("finish_2", "second answer"),
 	}}
 	runner, err := agent.NewAgent(t.TempDir(), model, "")
 	if err != nil {
@@ -76,9 +84,9 @@ func TestRunInteractive(t *testing.T) {
 
 func TestRunInteractiveCompactCommand(t *testing.T) {
 	model := &interactiveModel{responses: []agent.ModelResponse{
-		{Message: agent.Message{Role: "assistant", Content: "first answer"}},
-		{Message: agent.Message{Role: "assistant", Content: "second answer"}},
-		{Message: agent.Message{Role: "assistant", Content: "third answer"}},
+		finishedResponse("finish_1", "first answer"),
+		finishedResponse("finish_2", "second answer"),
+		finishedResponse("finish_3", "third answer"),
 		{Message: agent.Message{Role: "assistant", Content: "## 目标\n## 约束和偏好\n## 进度\n### 已完成\n### 进行中\n### 阻塞\n## 关键决策\n## 下一步\n## 关键上下文"}},
 	}}
 	runner, err := agent.NewAgent(t.TempDir(), model, "")
@@ -106,7 +114,7 @@ func (model *failingInteractiveModel) GenerateResponse(context.Context, agent.Mo
 			err:      errors.New("failed"),
 		}, nil
 	}
-	response := agent.ModelResponse{Message: agent.Message{Role: "assistant", Content: "done"}}
+	response := finishedResponse("finish", "done")
 	return &interactiveStream{response: response}, nil
 }
 
@@ -171,7 +179,7 @@ func TestRunInteractiveReportsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
-	if !strings.Contains(errorOutput.String(), "task incomplete: changes are not verified") {
+	if !strings.Contains(errorOutput.String(), "task incomplete: completion was not confirmed or changes are not verified") {
 		t.Fatalf("error output = %q", errorOutput.String())
 	}
 }
@@ -255,10 +263,10 @@ func TestScannerCommandApproverEscapesArguments(t *testing.T) {
 func TestScannerCommandApproverShowsToolName(t *testing.T) {
 	var output strings.Builder
 	approve := newScannerCommandApprover(bufio.NewScanner(strings.NewReader("n\n")), &output)
-	if _, err := approve(context.Background(), tools.CommandRequest{Tool: "verify_command", Command: "go", Args: []string{"test", "./..."}}); err != nil {
+	if _, err := approve(context.Background(), tools.CommandRequest{Tool: "finish_task", Command: "go", Args: []string{"test", "./..."}}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "允许 verify_command 执行") || strings.Contains(output.String(), "允许 run_command 执行") {
+	if !strings.Contains(output.String(), "允许 finish_task 执行") || strings.Contains(output.String(), "允许 run_command 执行") {
 		t.Fatalf("output = %q", output.String())
 	}
 }
