@@ -7,11 +7,11 @@ import (
 )
 
 func TestParseArgs(t *testing.T) {
-	parsed, err := parseArgs([]string{"-root", "project", "-trace", "trace.jsonl", "inspect", "the", "code"})
+	parsed, err := parseArgs([]string{"-root", "project", "-trace", "trace.jsonl", "-session", "session-id", "inspect", "the", "code"})
 	if err != nil {
 		t.Fatalf("parseArgs() error = %v", err)
 	}
-	if parsed.root != "project" || parsed.tracePath != "trace.jsonl" || parsed.task != "inspect the code" {
+	if parsed.root != "project" || parsed.tracePath != "trace.jsonl" || parsed.sessionID != "session-id" || parsed.task != "inspect the code" {
 		t.Fatalf("parseArgs() = %#v", parsed)
 	}
 }
@@ -21,7 +21,7 @@ func TestParseArgsWithoutTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseArgs() error = %v", err)
 	}
-	if parsed.root != "." || parsed.tracePath != "" || parsed.task != "" {
+	if parsed.root != "." || parsed.tracePath != "" || parsed.sessionID != "" || parsed.task != "" {
 		t.Fatalf("parseArgs() = %#v", parsed)
 	}
 }

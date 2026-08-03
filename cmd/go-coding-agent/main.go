@@ -7,6 +7,7 @@ import (
 	"go-coding-agent/internal/agent"
 	"go-coding-agent/internal/deepseek"
 	"go-coding-agent/internal/trace"
+	"io"
 	"os"
 )
 
@@ -21,50 +22,65 @@ const systemPrompt = `你是终端代码检索专家，务必严格遵守以下�
 8. 只要本轮调用工具，就只能返回 tool_calls，content 必须严格为空；禁止计划、状态、过程、过渡语和部分结论。`
 
 func main() {
+	runStatus := runCLI()
+	if code := exitCode(runStatus); code != 0 {
+		os.Exit(code)
+	}
+}
+
+func runCLI() agent.RunStatus {
 	config, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return agent.RunStatusError
 	}
 	client, err := deepseek.NewClient(os.Getenv("DEEPSEEK_API_KEY"), "", "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return agent.RunStatusError
 	}
-	runner, err := agent.NewAgent(config.root, client, systemPrompt)
+	runner, err := agent.NewSessionAgent(config.root, client, systemPrompt, config.sessionID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return agent.RunStatusError
 	}
+	return runAgentCLI(config, runner, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runAgentCLI(config config, runner *agent.Agent, input io.Reader, output, errorOutput io.Writer) agent.RunStatus {
+	defer func() {
+		printSessionID(output, runner.SessionID())
+	}()
+
 	if config.tracePath != "" {
 		if err := runner.EnableTrace(trace.Writer{Path: config.tracePath}); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fmt.Fprintln(errorOutput, err)
+			return agent.RunStatusError
 		}
 	}
 
 	ctx := context.Background()
-	scanner := bufio.NewScanner(os.Stdin)
-	runner.SetWriteApprover(newScannerWriteApprover(scanner, os.Stdout))
-	runner.SetCommandApprover(newScannerCommandApprover(scanner, os.Stdout))
+	scanner := bufio.NewScanner(input)
+	runner.SetWriteApprover(newScannerWriteApprover(scanner, output))
+	runner.SetCommandApprover(newScannerCommandApprover(scanner, output))
 
 	if config.task == "" {
-		if err := runInteractive(ctx, runner, scanner, os.Stdout, os.Stderr); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		if err := runInteractive(ctx, runner, scanner, output, errorOutput); err != nil {
+			fmt.Fprintln(errorOutput, err)
+			return agent.RunStatusError
 		}
-		return
+		return agent.RunStatusSuccess
 	}
-	result, err := runTask(ctx, runner, config.task, os.Stdout)
+	result, err := runTask(ctx, runner, config.task, output)
+	fmt.Fprintln(output)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(exitCode(result.Status))
+		fmt.Fprintln(errorOutput, err)
+		return agent.RunStatusError
 	}
-	fmt.Println()
 	if result.Status == agent.RunStatusIncomplete {
-		fmt.Fprintln(os.Stderr, "task incomplete: completion was not confirmed or changes are not verified")
-		os.Exit(exitCode(result.Status))
+		fmt.Fprintln(errorOutput, "task incomplete: completion was not confirmed or changes are not verified")
 	}
+	return result.Status
 }
 
 func exitCode(status agent.RunStatus) int {

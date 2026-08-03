@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"os"
 	"strings"
 )

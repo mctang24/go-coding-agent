@@ -2,7 +2,7 @@ package trace
 
 import (
 	"bufio"
-	"encoding/json"
+	"github.com/goccy/go-json"
 	"os"
 	"path/filepath"
 	"testing"

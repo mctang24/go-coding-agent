@@ -30,22 +30,19 @@ func reportTraceError(event string, err error) {
 	}
 }
 
-func newTraceID(prefix string) (string, error) {
-	if prefix == "" {
-		return "", fmt.Errorf("generate trace ID: prefix is empty")
-	}
+func newRunID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("generate trace ID: %w", err)
+		return "", fmt.Errorf("generate run ID: %w", err)
 	}
-	return prefix + "_" + hex.EncodeToString(bytes), nil
+	return "run_" + hex.EncodeToString(bytes), nil
 }
 
 func (agent *Agent) startRunTrace(task string, definitions []ToolDefinition) (*runTrace, error) {
 	if agent.traceWriter == nil {
 		return nil, nil
 	}
-	runID, err := newTraceID("run")
+	runID, err := newRunID()
 	if err != nil {
 		return nil, fmt.Errorf("agent run: %w", err)
 	}

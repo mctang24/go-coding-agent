@@ -2,9 +2,9 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/goccy/go-json"
 	"os/exec"
 	"path/filepath"
 	"strings"

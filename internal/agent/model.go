@@ -38,23 +38,23 @@ type ModelResponse struct {
 }
 
 type Message struct {
-	Role        string
-	Content     string
-	ToolCalls   []ToolCall
-	ToolResults []ToolResult
-	RawMessage  []byte
+	Role        string       `json:"role"`
+	Content     string       `json:"content,omitempty"`
+	ToolCalls   []ToolCall   `json:"toolCalls,omitempty"`
+	ToolResults []ToolResult `json:"toolResults,omitempty"`
+	RawMessage  []byte       `json:"rawMessage,omitempty"`
 }
 
 type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments string
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type ToolResult struct {
-	ToolCallID string
-	Content    string
-	IsError    bool
+	ToolCallID string `json:"toolCallId"`
+	Content    string `json:"content"`
+	IsError    bool   `json:"isError,omitempty"`
 }
 
 type ToolDefinition struct {

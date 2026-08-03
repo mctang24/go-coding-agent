@@ -135,8 +135,97 @@ func TestRunInteractiveContinuesAfterRunError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
-	if model.calls != 2 || output.String() != "> partial\n> done\n> " || !strings.Contains(errorOutput.String(), "failed") {
+	if model.calls != 2 || output.String() != "> partial\n> done\n> " || errorOutput.String() != "agent run: generate response: failed\n" {
 		t.Fatalf("calls = %d, output = %q, error output = %q", model.calls, output.String(), errorOutput.String())
+	}
+}
+
+func TestRunInteractiveNewPrintsEndedSessionID(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	model := &interactiveModel{}
+	runner, err := agent.NewSessionAgent(t.TempDir(), model, "", "")
+	if err != nil {
+		t.Fatalf("NewSessionAgent() error = %v", err)
+	}
+	endedSessionID := runner.SessionID()
+	var output strings.Builder
+
+	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("/new\n/exit\n")), &output, &output); err != nil {
+		t.Fatalf("runInteractive() error = %v", err)
+	}
+	if runner.SessionID() == endedSessionID {
+		t.Fatal("/new did not create a new Session")
+	}
+	if !strings.Contains(output.String(), "sessionId: "+endedSessionID+"\n") {
+		t.Fatalf("output = %q, want ended Session ID", output.String())
+	}
+	if strings.Contains(output.String(), runner.SessionID()) {
+		t.Fatalf("output = %q, new Session ID was printed before it ended", output.String())
+	}
+}
+
+func TestRunAgentCLIPrintsSessionIDOnInteractiveEnd(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input string
+	}{
+		{name: "exit", input: "/exit\n"},
+		{name: "end of input"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			runner, err := agent.NewSessionAgent(t.TempDir(), &interactiveModel{}, "", "")
+			if err != nil {
+				t.Fatalf("NewSessionAgent() error = %v", err)
+			}
+			var output strings.Builder
+			var errorOutput strings.Builder
+
+			if status := runAgentCLI(config{}, runner, strings.NewReader(test.input), &output, &errorOutput); status != agent.RunStatusSuccess {
+				t.Fatalf("runAgentCLI() status = %q, error output = %q", status, errorOutput.String())
+			}
+			line := "sessionId: " + runner.SessionID() + "\n"
+			if strings.Count(output.String(), line) != 1 {
+				t.Fatalf("output = %q, want current Session ID exactly once", output.String())
+			}
+		})
+	}
+}
+
+func TestRunAgentCLIPrintsSessionIDOnRunError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	runner, err := agent.NewSessionAgent(t.TempDir(), &failingInteractiveModel{}, "", "")
+	if err != nil {
+		t.Fatalf("NewSessionAgent() error = %v", err)
+	}
+	var output strings.Builder
+	var errorOutput strings.Builder
+
+	if status := runAgentCLI(config{task: "question"}, runner, strings.NewReader(""), &output, &errorOutput); status != agent.RunStatusError {
+		t.Fatalf("runAgentCLI() status = %q, want %q", status, agent.RunStatusError)
+	}
+	wantOutput := "partial\nsessionId: " + runner.SessionID() + "\n"
+	if output.String() != wantOutput || !strings.Contains(errorOutput.String(), "failed") {
+		t.Fatalf("output = %q, error output = %q", output.String(), errorOutput.String())
+	}
+}
+
+func TestRunAgentCLIPrintsOldAndNewSessionIDsOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	runner, err := agent.NewSessionAgent(t.TempDir(), &interactiveModel{}, "", "")
+	if err != nil {
+		t.Fatalf("NewSessionAgent() error = %v", err)
+	}
+	oldSessionID := runner.SessionID()
+	var output strings.Builder
+	var errorOutput strings.Builder
+
+	if status := runAgentCLI(config{}, runner, strings.NewReader("/new\n/exit\n"), &output, &errorOutput); status != agent.RunStatusSuccess {
+		t.Fatalf("runAgentCLI() status = %q, error output = %q", status, errorOutput.String())
+	}
+	newSessionID := runner.SessionID()
+	if strings.Count(output.String(), "sessionId: "+oldSessionID+"\n") != 1 || strings.Count(output.String(), "sessionId: "+newSessionID+"\n") != 1 {
+		t.Fatalf("output = %q, want old and new Session IDs exactly once", output.String())
 	}
 }
 

@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/goccy/go-json"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,7 +29,7 @@ func TestAgentEnableTrace(t *testing.T) {
 	if err := agent.EnableTrace(trace.Writer{Path: filepath.Join(t.TempDir(), "trace.jsonl")}); err != nil {
 		t.Fatalf("EnableTrace() error = %v", err)
 	}
-	if agent.traceWriter == nil || !strings.HasPrefix(agent.sessionID, "session_") {
+	if agent.traceWriter == nil || !sessionIDPattern.MatchString(agent.sessionID) {
 		t.Fatalf("trace writer = %#v, session ID = %q", agent.traceWriter, agent.sessionID)
 	}
 	if err := agent.EnableTrace(trace.Writer{}); err == nil {
@@ -819,7 +819,7 @@ func TestAgentResetTrace(t *testing.T) {
 	if err := agent.Reset(); err != nil {
 		t.Fatalf("Reset() error = %v", err)
 	}
-	if len(agent.messages) != 0 || agent.sessionID == oldSessionID || !strings.HasPrefix(agent.sessionID, "session_") {
+	if len(agent.messages) != 0 || agent.sessionID == oldSessionID || !sessionIDPattern.MatchString(agent.sessionID) {
 		t.Fatalf("messages = %#v, session ID = %q", agent.messages, agent.sessionID)
 	}
 	if agent.tokenUsage != 0 {

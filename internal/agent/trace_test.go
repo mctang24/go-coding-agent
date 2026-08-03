@@ -11,22 +11,19 @@ import (
 )
 
 func TestNewTraceID(t *testing.T) {
-	first, err := newTraceID("session")
+	first, err := newRunID()
 	if err != nil {
-		t.Fatalf("newTraceID() error = %v", err)
+		t.Fatalf("newRunID() error = %v", err)
 	}
-	second, err := newTraceID("run")
+	second, err := newRunID()
 	if err != nil {
-		t.Fatalf("newTraceID() error = %v", err)
+		t.Fatalf("newRunID() error = %v", err)
 	}
-	if len(first) != 40 || first[:8] != "session_" || len(second) != 36 || second[:4] != "run_" {
-		t.Fatalf("trace IDs = %q, %q", first, second)
+	if len(first) != 36 || first[:4] != "run_" || len(second) != 36 || second[:4] != "run_" || first == second {
+		t.Fatalf("run IDs = %q, %q", first, second)
 	}
-	if _, err := hex.DecodeString(first[8:]); err != nil {
-		t.Fatalf("trace ID %q is not hexadecimal: %v", first, err)
-	}
-	if _, err := newTraceID(""); err == nil {
-		t.Fatal("newTraceID() error = nil, want empty prefix error")
+	if _, err := hex.DecodeString(first[4:]); err != nil {
+		t.Fatalf("run ID %q is not hexadecimal: %v", first, err)
 	}
 }
 

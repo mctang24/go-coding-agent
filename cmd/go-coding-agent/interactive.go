@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"go-coding-agent/internal/agent"
 	"go-coding-agent/internal/tools"
 	"io"
@@ -32,9 +32,11 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 		case "/exit":
 			return nil
 		case "/new":
+			endedSessionID := runner.SessionID()
 			if err := runner.Reset(); err != nil {
 				return err
 			}
+			printSessionID(output, endedSessionID)
 			fmt.Fprintln(output, "new conversation")
 			continue
 		case "/compact":
@@ -55,6 +57,12 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 		if result.Status == agent.RunStatusIncomplete {
 			fmt.Fprintln(errorOutput, "task incomplete: completion was not confirmed or changes are not verified")
 		}
+	}
+}
+
+func printSessionID(output io.Writer, sessionID string) {
+	if sessionID != "" {
+		fmt.Fprintf(output, "sessionId: %s\n", sessionID)
 	}
 }
 

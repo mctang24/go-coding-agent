@@ -2,8 +2,8 @@ package deepseek
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"go-coding-agent/internal/agent"
 )
 

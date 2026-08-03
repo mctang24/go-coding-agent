@@ -2,11 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"go-coding-agent/internal/tools"
 	"go-coding-agent/internal/trace"
 	"io"
+	"path/filepath"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Agent struct {
 	tokenUsage          int
 	traceWriter         *trace.Writer
 	sessionID           string
+	sessionFile         *sessionFile
 	workspaceTools      *tools.WorkspaceTools
 	hasUnverifiedChange bool
 	lastVerification    *verificationFact
@@ -32,12 +34,14 @@ func (agent *Agent) EnableTrace(writer trace.Writer) error {
 	if writer.Path == "" {
 		return fmt.Errorf("enable trace: path is empty")
 	}
-	sessionID, err := newTraceID("session")
-	if err != nil {
-		return fmt.Errorf("enable trace: %w", err)
+	if agent.sessionID == "" {
+		sessionID, err := newSessionID()
+		if err != nil {
+			return fmt.Errorf("enable trace: %w", err)
+		}
+		agent.sessionID = sessionID
 	}
 	agent.traceWriter = &writer
-	agent.sessionID = sessionID
 	return nil
 }
 
@@ -96,6 +100,11 @@ func (agent *Agent) SetCommandApprover(approver tools.CommandApprover) {
 	}
 }
 
+// SessionID returns the current Session identifier.
+func (agent *Agent) SessionID() string {
+	return agent.sessionID
+}
+
 // Run continues the conversation until the model completes or stops the task.
 func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaHandler) (result RunResult, runErr error) {
 	var currentTrace *runTrace
@@ -128,6 +137,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			return RunResult{}, fmt.Errorf("agent run: automatic compact: %w", err)
 		}
 	}
+	committedMessageCount := len(agent.messages)
 
 	definitions := modelTools(agent.tools)
 	currentTrace, err := agent.startRunTrace(task, definitions)
@@ -161,8 +171,9 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 					tokenUsage = estimatedTokens
 				}
 			}
-			agent.messages = messages
-			agent.tokenUsage = tokenUsage
+			if err := agent.commitRun(messages[committedMessageCount:], messages, tokenUsage); err != nil {
+				return RunResult{}, fmt.Errorf("agent run: %w", err)
+			}
 			return RunResult{Content: response.Message.Content}, nil
 		}
 
@@ -177,14 +188,30 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 					return RunResult{}, fmt.Errorf("agent run: write finish_task result: %w", err)
 				}
 			}
-			agent.messages = messages
-			agent.tokenUsage = response.Usage.TotalTokens
+			if err := agent.commitRun(messages[committedMessageCount:], messages, response.Usage.TotalTokens); err != nil {
+				return RunResult{}, fmt.Errorf("agent run: %w", err)
+			}
 			taskFinished = true
 			return RunResult{Content: completed.Result}, nil
 		}
 	}
 
 	return RunResult{}, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
+}
+
+func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) error {
+	if agent.sessionFile != nil {
+		verification := verificationState{
+			HasUnverifiedChange: agent.hasUnverifiedChange,
+			LastVerification:    agent.lastVerification,
+		}
+		if err := agent.sessionFile.appendRunCommit(newMessages, tokenUsage, verification); err != nil {
+			return fmt.Errorf("persist session: %w", err)
+		}
+	}
+	agent.messages = messages
+	agent.tokenUsage = tokenUsage
+	return nil
 }
 
 func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, current *runTrace, turn int) ([]ToolResult, *tools.FinishTaskResult, error) {
@@ -335,21 +362,41 @@ func (agent *Agent) callTool(ctx context.Context, call ToolCall, current *runTra
 
 // Reset clears the conversation history and starts a new traced session.
 func (agent *Agent) Reset() error {
-	if agent.traceWriter != nil {
-		newSessionID, err := newTraceID("session")
+	var nextSession *sessionFile
+	if agent.sessionFile != nil {
+		created, err := newSessionFile(filepath.Dir(agent.sessionFile.path), agent.root)
+		if err != nil {
+			return fmt.Errorf("reset agent: %w", err)
+		}
+		nextSession = &created
+	}
+
+	nextSessionID := ""
+	if nextSession != nil {
+		nextSessionID = nextSession.id
+	} else if agent.traceWriter != nil {
+		generated, err := newSessionID()
 		if err != nil {
 			reportTraceError("session_reset", err)
 		} else {
-			if err := agent.traceWriter.Append(trace.Event{
-				Timestamp: time.Now().UTC(),
-				SessionID: agent.sessionID,
-				Type:      "session_reset",
-				Data:      map[string]any{"newSessionId": newSessionID},
-			}); err != nil {
-				reportTraceError("session_reset", err)
-			}
-			agent.sessionID = newSessionID
+			nextSessionID = generated
 		}
+	}
+	if agent.traceWriter != nil && nextSessionID != "" {
+		if err := agent.traceWriter.Append(trace.Event{
+			Timestamp: time.Now().UTC(),
+			SessionID: agent.sessionID,
+			Type:      "session_reset",
+			Data:      map[string]any{"newSessionId": nextSessionID},
+		}); err != nil {
+			reportTraceError("session_reset", err)
+		}
+	}
+	if nextSession != nil {
+		agent.sessionFile = nextSession
+	}
+	if nextSessionID != "" {
+		agent.sessionID = nextSessionID
 	}
 	agent.messages = nil
 	agent.tokenUsage = 0
