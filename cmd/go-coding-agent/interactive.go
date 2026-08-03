@@ -19,7 +19,7 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 }
 
 // runInteractive runs an in-memory conversation until the user exits.
-func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Scanner, output, errorOutput io.Writer) error {
+func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Scanner, output io.Writer) error {
 	for {
 		fmt.Fprint(output, "> ")
 		if !scanner.Scan() {
@@ -34,14 +34,15 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 		case "/new":
 			endedSessionID := runner.SessionID()
 			if err := runner.Reset(); err != nil {
-				return err
+				fmt.Fprintln(output, err)
+				continue
 			}
 			printSessionID(output, endedSessionID)
 			fmt.Fprintln(output, "new conversation")
 			continue
 		case "/compact":
 			if err := runner.Compact(ctx); err != nil {
-				fmt.Fprintln(errorOutput, err)
+				fmt.Fprintln(output, err)
 				continue
 			}
 			fmt.Fprintln(output, "conversation compacted")
@@ -51,11 +52,11 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 		result, err := runTask(ctx, runner, task, output)
 		fmt.Fprintln(output)
 		if err != nil {
-			fmt.Fprintln(errorOutput, err)
+			fmt.Fprintln(output, err)
 			continue
 		}
 		if result.Status == agent.RunStatusIncomplete {
-			fmt.Fprintln(errorOutput, "task incomplete: completion was not confirmed or changes are not verified")
+			fmt.Fprintln(output, "task incomplete: completion was not confirmed or changes are not verified")
 		}
 	}
 }

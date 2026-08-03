@@ -7,6 +7,8 @@ import (
 	"go-coding-agent/internal/agent"
 	"go-coding-agent/internal/tools"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,7 +72,7 @@ func TestRunInteractive(t *testing.T) {
 	}
 	var output strings.Builder
 
-	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first question\n/new\nsecond question\n/exit\n")), &output, &output)
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first question\n/new\nsecond question\n/exit\n")), &output)
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
@@ -94,7 +96,7 @@ func TestRunInteractiveCompactCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output strings.Builder
-	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("one\ntwo\nthree\n/compact\n/exit\n")), &output, &output); err != nil {
+	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("one\ntwo\nthree\n/compact\n/exit\n")), &output); err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
 	if !strings.Contains(output.String(), "conversation compacted") || len(model.requests) != 4 {
@@ -129,14 +131,13 @@ func TestRunInteractiveContinuesAfterRunError(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 	var output strings.Builder
-	var errorOutput strings.Builder
 
-	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first\nsecond\n/exit\n")), &output, &errorOutput)
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("first\nsecond\n/exit\n")), &output)
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
-	if model.calls != 2 || output.String() != "> partial\n> done\n> " || errorOutput.String() != "agent run: generate response: failed\n" {
-		t.Fatalf("calls = %d, output = %q, error output = %q", model.calls, output.String(), errorOutput.String())
+	if model.calls != 2 || output.String() != "> partial\nagent run: generate response: failed\n> done\n> " {
+		t.Fatalf("calls = %d, output = %q", model.calls, output.String())
 	}
 }
 
@@ -150,14 +151,15 @@ func TestRunInteractiveNewPrintsEndedSessionID(t *testing.T) {
 	endedSessionID := runner.SessionID()
 	var output strings.Builder
 
-	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("/new\n/exit\n")), &output, &output); err != nil {
+	if err := runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("/new\n/exit\n")), &output); err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
 	if runner.SessionID() == endedSessionID {
 		t.Fatal("/new did not create a new Session")
 	}
-	if !strings.Contains(output.String(), "sessionId: "+endedSessionID+"\n") {
-		t.Fatalf("output = %q, want ended Session ID", output.String())
+	wantOutput := "> sessionId: " + endedSessionID + "\nnew conversation\n> "
+	if output.String() != wantOutput {
+		t.Fatalf("output = %q, want %q", output.String(), wantOutput)
 	}
 	if strings.Contains(output.String(), runner.SessionID()) {
 		t.Fatalf("output = %q, new Session ID was printed before it ended", output.String())
@@ -184,9 +186,9 @@ func TestRunAgentCLIPrintsSessionIDOnInteractiveEnd(t *testing.T) {
 			if status := runAgentCLI(config{}, runner, strings.NewReader(test.input), &output, &errorOutput); status != agent.RunStatusSuccess {
 				t.Fatalf("runAgentCLI() status = %q, error output = %q", status, errorOutput.String())
 			}
-			line := "sessionId: " + runner.SessionID() + "\n"
-			if strings.Count(output.String(), line) != 1 {
-				t.Fatalf("output = %q, want current Session ID exactly once", output.String())
+			wantOutput := "> sessionId: " + runner.SessionID() + "\n"
+			if output.String() != wantOutput {
+				t.Fatalf("output = %q, want %q", output.String(), wantOutput)
 			}
 		})
 	}
@@ -224,8 +226,38 @@ func TestRunAgentCLIPrintsOldAndNewSessionIDsOnce(t *testing.T) {
 		t.Fatalf("runAgentCLI() status = %q, error output = %q", status, errorOutput.String())
 	}
 	newSessionID := runner.SessionID()
-	if strings.Count(output.String(), "sessionId: "+oldSessionID+"\n") != 1 || strings.Count(output.String(), "sessionId: "+newSessionID+"\n") != 1 {
-		t.Fatalf("output = %q, want old and new Session IDs exactly once", output.String())
+	wantOutput := "> sessionId: " + oldSessionID + "\nnew conversation\n> sessionId: " + newSessionID + "\n"
+	if output.String() != wantOutput {
+		t.Fatalf("output = %q, want %q", output.String(), wantOutput)
+	}
+}
+
+func TestRunAgentCLIContinuesOldSessionWhenNewSessionCreationFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	runner, err := agent.NewSessionAgent(t.TempDir(), &interactiveModel{}, "", "")
+	if err != nil {
+		t.Fatalf("NewSessionAgent() error = %v", err)
+	}
+	oldSessionID := runner.SessionID()
+	sessionDir := filepath.Join(home, ".go-coding-agent", "sessions")
+	if err := os.Rename(sessionDir, sessionDir+"-moved"); err != nil {
+		t.Fatalf("move Session directory: %v", err)
+	}
+	if err := os.WriteFile(sessionDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("block Session directory: %v", err)
+	}
+	var output strings.Builder
+	var errorOutput strings.Builder
+
+	if status := runAgentCLI(config{}, runner, strings.NewReader("/new\n/exit\n"), &output, &errorOutput); status != agent.RunStatusSuccess {
+		t.Fatalf("runAgentCLI() status = %q, error output = %q", status, errorOutput.String())
+	}
+	if runner.SessionID() != oldSessionID {
+		t.Fatalf("Session ID = %q, want old Session %q", runner.SessionID(), oldSessionID)
+	}
+	if !strings.HasPrefix(output.String(), "> reset agent:") || !strings.HasSuffix(output.String(), "\n> sessionId: "+oldSessionID+"\n") || errorOutput.Len() != 0 {
+		t.Fatalf("output = %q, error output = %q", output.String(), errorOutput.String())
 	}
 }
 
@@ -262,14 +294,13 @@ func TestRunInteractiveReportsIncomplete(t *testing.T) {
 	}
 	runner.SetWriteApprover(func(context.Context, tools.WriteRequest) (bool, error) { return true, nil })
 	var output strings.Builder
-	var errorOutput strings.Builder
 
-	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("create file\n/exit\n")), &output, &errorOutput)
+	err = runInteractive(context.Background(), runner, bufio.NewScanner(strings.NewReader("create file\n/exit\n")), &output)
 	if err != nil {
 		t.Fatalf("runInteractive() error = %v", err)
 	}
-	if !strings.Contains(errorOutput.String(), "task incomplete: completion was not confirmed or changes are not verified") {
-		t.Fatalf("error output = %q", errorOutput.String())
+	if !strings.Contains(output.String(), "task incomplete: completion was not confirmed or changes are not verified") {
+		t.Fatalf("output = %q", output.String())
 	}
 }
 

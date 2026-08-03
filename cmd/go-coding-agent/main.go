@@ -65,7 +65,7 @@ func runAgentCLI(config config, runner *agent.Agent, input io.Reader, output, er
 	runner.SetCommandApprover(newScannerCommandApprover(scanner, output))
 
 	if config.task == "" {
-		if err := runInteractive(ctx, runner, scanner, output, errorOutput); err != nil {
+		if err := runInteractive(ctx, runner, scanner, output); err != nil {
 			fmt.Fprintln(errorOutput, err)
 			return agent.RunStatusError
 		}

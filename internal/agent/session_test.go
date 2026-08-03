@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"github.com/goccy/go-json"
+	"go-coding-agent/internal/tools"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -520,6 +522,40 @@ func TestSessionAgentRestoresAndContinues(t *testing.T) {
 	}
 }
 
+func TestSessionAgentRestoresCompletedToolRoundAfterModelFailure(t *testing.T) {
+	sessionDir := t.TempDir()
+	root := t.TempDir()
+	modelErr := errors.New("second request failed")
+	model := &modelStub{
+		responses: []ModelResponse{{
+			Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "write_1", Name: "write_file", Arguments: `{}`}}},
+			Usage:   TokenUsage{TotalTokens: 31},
+		}},
+		errs: []error{nil, modelErr},
+	}
+	runner, err := newSessionAgent(sessionDir, root, model, "", "", 2)
+	if err != nil {
+		t.Fatalf("newSessionAgent() error = %v", err)
+	}
+	runner.tools = []tools.Tool{{Name: "write_file", Execute: func(context.Context, string, string) (string, error) {
+		return `{"path":"created.txt"}`, nil
+	}}}
+
+	if _, err := runner.Run(context.Background(), "create file", nil); !errors.Is(err, modelErr) {
+		t.Fatalf("Run() error = %v, want model error", err)
+	}
+	restored, err := newSessionAgent(sessionDir, root, &modelStub{}, "", runner.SessionID())
+	if err != nil {
+		t.Fatalf("restore newSessionAgent() error = %v", err)
+	}
+	if len(restored.messages) != 3 || restored.messages[0].Content != "create file" || restored.messages[2].ToolResults[0].Content != `{"path":"created.txt"}` {
+		t.Fatalf("restored messages = %#v", restored.messages)
+	}
+	if restored.tokenUsage != 31 || !restored.hasUnverifiedChange || restored.lastVerification != nil {
+		t.Fatalf("restored state = token usage %d, unverified %t, verification %#v", restored.tokenUsage, restored.hasUnverifiedChange, restored.lastVerification)
+	}
+}
+
 func TestSessionAgentPersistsCompaction(t *testing.T) {
 	sessionDir := t.TempDir()
 	root := t.TempDir()
@@ -586,6 +622,43 @@ func TestSessionAgentReportsCommitFailure(t *testing.T) {
 
 	if _, err := runner.Run(context.Background(), "question", nil); err == nil || !strings.Contains(err.Error(), "persist session") {
 		t.Fatalf("Run() error = %v, want persistence failure", err)
+	}
+	if len(runner.messages) != 0 {
+		t.Fatalf("messages = %#v, want no in-memory commit", runner.messages)
+	}
+	_, state, err := restoreSessionFile(sessionDir, originalFile.id, root)
+	if err != nil {
+		t.Fatalf("restoreSessionFile() error = %v", err)
+	}
+	if len(state.messages) != 0 {
+		t.Fatalf("persisted messages = %#v, want none", state.messages)
+	}
+}
+
+func TestSessionAgentDoesNotContinueAfterToolRoundCommitFailure(t *testing.T) {
+	sessionDir := t.TempDir()
+	root := t.TempDir()
+	model := &modelStub{responses: []ModelResponse{
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "echo_1", Name: "echo", Arguments: `{}`}}}},
+		{Message: Message{Role: "assistant", Content: "must not be requested"}},
+	}}
+	runner, err := newSessionAgent(sessionDir, root, model, "", "", 2)
+	if err != nil {
+		t.Fatalf("newSessionAgent() error = %v", err)
+	}
+	runner.tools = []tools.Tool{{Name: "echo", Execute: func(context.Context, string, string) (string, error) {
+		return "done", nil
+	}}}
+	originalFile := *runner.sessionFile
+	brokenFile := originalFile
+	brokenFile.path = filepath.Join(sessionDir, "missing", "session.jsonl")
+	runner.sessionFile = &brokenFile
+
+	if _, err := runner.Run(context.Background(), "question", nil); err == nil || !strings.Contains(err.Error(), "persist session") {
+		t.Fatalf("Run() error = %v, want persistence failure", err)
+	}
+	if len(model.requests) != 1 {
+		t.Fatalf("model requests = %d, want no request after persistence failure", len(model.requests))
 	}
 	if len(runner.messages) != 0 {
 		t.Fatalf("messages = %#v, want no in-memory commit", runner.messages)

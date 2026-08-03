@@ -182,14 +182,15 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			return RunResult{}, err
 		}
 		messages = append(messages, Message{Role: "tool", ToolResults: toolResults})
+		if err := agent.commitRun(messages[committedMessageCount:], messages, response.Usage.TotalTokens); err != nil {
+			return RunResult{}, fmt.Errorf("agent run: %w", err)
+		}
+		committedMessageCount = len(messages)
 		if completed != nil {
 			if onTextDelta != nil {
 				if err := onTextDelta(completed.Result); err != nil {
 					return RunResult{}, fmt.Errorf("agent run: write finish_task result: %w", err)
 				}
-			}
-			if err := agent.commitRun(messages[committedMessageCount:], messages, response.Usage.TotalTokens); err != nil {
-				return RunResult{}, fmt.Errorf("agent run: %w", err)
 			}
 			taskFinished = true
 			return RunResult{Content: completed.Result}, nil

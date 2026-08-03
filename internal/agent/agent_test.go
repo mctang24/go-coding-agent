@@ -733,11 +733,14 @@ func TestAgentRunDiscardsFailedConversation(t *testing.T) {
 	}
 }
 
-func TestAgentRunDiscardsConversationWhenModelFailsAfterTool(t *testing.T) {
+func TestAgentRunKeepsCompletedToolRoundWhenNextModelRequestFails(t *testing.T) {
 	modelErr := errors.New("second request failed")
 	model := &modelStub{
-		responses: []ModelResponse{{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "echo", Arguments: `{}`}}}}},
-		errs:      []error{nil, modelErr},
+		responses: []ModelResponse{{
+			Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "echo", Arguments: `{}`}}},
+			Usage:   TokenUsage{TotalTokens: 29},
+		}},
+		errs: []error{nil, modelErr},
 	}
 	agent := Agent{
 		model:      model,
@@ -753,8 +756,11 @@ func TestAgentRunDiscardsConversationWhenModelFailsAfterTool(t *testing.T) {
 	if !errors.Is(err, modelErr) {
 		t.Fatalf("Run() error = %v, want model error", err)
 	}
-	if len(agent.messages) != 1 || agent.messages[0].Content != "keep" || agent.tokenUsage != 17 {
-		t.Fatalf("state changed: messages = %#v, token usage = %d", agent.messages, agent.tokenUsage)
+	if len(agent.messages) != 4 || agent.messages[0].Content != "keep" || agent.messages[1].Content != "new question" || agent.messages[3].ToolResults[0].Content != "done" {
+		t.Fatalf("committed messages = %#v", agent.messages)
+	}
+	if agent.tokenUsage != 29 {
+		t.Fatalf("token usage = %d, want 29", agent.tokenUsage)
 	}
 }
 
