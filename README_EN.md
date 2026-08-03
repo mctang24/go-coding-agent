@@ -11,9 +11,9 @@ A coding agent built from scratch in Go and a working Harness Engineering implem
 ## Highlights
 
 - **Core Harness Engineering capabilities**: combines the agent runtime, controlled tools, safety boundaries, context management, completion verification, and tracing into a minimal working harness.
-- **Resumable sessions**: conversations, tool execution results, verification state, and compacted context are persisted incrementally, allowing work to continue later using a Session ID.
 - **Complete coding workflow**: built-in tools for code search, file operations, and command execution, validated through an end-to-end bug-fix task.
 - **Safe file modifications**: read-before-write enforcement, hash-based conflict detection, atomic replacement, workspace boundaries, symlink escape protection, and explicit approval before file changes or command execution.
+- **Resumable sessions**: conversations, tool execution results, verification state, and compacted context are persisted incrementally, allowing work to continue later using a Session ID.
 
 ## Quick start
 
