@@ -1,23 +1,25 @@
 # Go Coding Agent
 
-一个用 Go 从零实现的 Coding Agent，也是面向 Harness Engineering 的可运行实践：通过 Agent Runtime、受控工具和验证闭环稳定完成代码任务。
+一个用 Go 从零构建、面向真实软件工程任务的 Coding Agent Harness，聚焦可靠执行、上下文管理与安全边界。
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
-[![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek-4D6BFE)](https://www.deepseek.com/)
 ![Coding Agent](https://img.shields.io/badge/AI-Coding_Agent-8A2BE2)
 
 [English](README_EN.md)
 
-## 核心亮点
+## 核心能力
 
-- **Harness Engineering 核心能力**：将 Agent Runtime、受控工具、安全边界、上下文管理、完成性验证和 trace 组合为最小可运行 Harness。
-- **完整 Coding 闭环**：内置代码检索、文件读写和命令执行工具，并通过端到端的「定位 → 修改 → 测试」任务验证。
-- **安全文件修改**：提供读取前置、哈希冲突检测、原子替换、工作区边界和符号链接越界防护，修改文件或执行命令前均需人工确认。
-- **会话可恢复**：对话、工具执行结果、验证状态与压缩上下文增量持久化，退出后可通过 Session ID 继续任务。
+| Harness 能力 | 实现 |
+| --- | --- |
+| Agent Runtime | 流式响应、tool calling、轮次上限与安全终止 |
+| 安全边界 | 工作区隔离、符号链接越界防护、写前读取、并发修改检测与人工审批 |
+| 任务闭环 | 代码分析、变更执行、命令运行，以及 `finish_task` 驱动的最终验证 |
+| 上下文管理 | JSONL 增量持久化、上下文压缩、Session 恢复与中断状态保留 |
+| 可观测性 | 可选 JSONL trace，记录 Run、模型调用、工具执行和验证状态 |
 
 ## 快速开始
 
-需要 Go 1.26、`rg` 和 DeepSeek API Key。
+要求：Go 1.26、`rg` 和 DeepSeek API Key。
 
 ```bash
 export DEEPSEEK_API_KEY="your-api-key"
@@ -28,20 +30,38 @@ go run ./cmd/go-coding-agent -root .
 
 ```text
 > 定位 NormalizeTag 的问题，修复后运行测试
-> /new
-> /exit
 ```
 
-也可以运行一次性任务：
+CLI 只支持 TTY 交互。文件修改和命令执行会逐次请求确认。
+
+## 会话与中断
+
+| 输入 | 语义 |
+| --- | --- |
+| `Esc` | 中断当前 Run，保留 Session 并继续交互 |
+| `Ctrl+C` | 中断当前 Run，结束 Session，输出 `sessionId` 并退出 |
+| `/compact` | 压缩当前上下文，不结束 Session |
+| `/new` | 结束当前 Session，输出旧 `sessionId`，然后创建新 Session |
+| `/exit` | 结束当前 Session，输出 `sessionId` 并退出 |
+| `-session <sessionId>` | 仅恢复已有 Session；新 Session ID 始终由程序自动生成 |
+
+恢复 CLI 输出的 Session：
+
+```bash
+SESSION_ID="<printed-session-id>"
+go run ./cmd/go-coding-agent -root . -session "$SESSION_ID"
+```
+
+## 其他用法
+
+运行单次任务：
 
 ```bash
 go run ./cmd/go-coding-agent -root . "分析项目入口并说明主要调用链"
 ```
 
-需要记录执行轨迹时，指定 trace 文件：
+记录执行轨迹：
 
 ```bash
 go run ./cmd/go-coding-agent -root . -trace /tmp/go-coding-agent-trace.jsonl "分析项目入口"
 ```
-
-文件修改和命令执行会在终端中逐次请求确认。会话仅保存在当前进程内，不跨进程持久化。
