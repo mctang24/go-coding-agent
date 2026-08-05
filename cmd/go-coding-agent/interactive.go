@@ -50,8 +50,17 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, output io.Writer) error {
 	for {
 		fmt.Fprint(output, "> ")
-		if !input.scanner.Scan() {
-			return input.scanner.Err()
+		scanned := make(chan bool, 1)
+		go func() {
+			scanned <- input.scanner.Scan()
+		}()
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case ok := <-scanned:
+			if !ok {
+				return input.scanner.Err()
+			}
 		}
 		task := strings.TrimSpace(input.scanner.Text())
 		switch task {
@@ -70,6 +79,9 @@ func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, ou
 			continue
 		case "/compact":
 			if err := runner.Compact(ctx); err != nil {
+				if ctx.Err() != nil {
+					return context.Cause(ctx)
+				}
 				fmt.Fprintln(output, err)
 				continue
 			}
@@ -81,6 +93,9 @@ func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, ou
 		result, err := runTaskWithInterrupt(ctx, runner, task, input.fd, runOutput)
 		if runOutput.needsNewline {
 			fmt.Fprintln(output)
+		}
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
 		if err != nil {
 			fmt.Fprintln(output, err)

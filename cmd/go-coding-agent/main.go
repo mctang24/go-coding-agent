@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 
 	"go-coding-agent/internal/agent"
 	"go-coding-agent/internal/deepseek"
@@ -56,6 +58,18 @@ func runAgentCLI(config config, runner *agent.Agent, input cliInput, output, err
 	defer func() {
 		printSessionID(output, runner.SessionID())
 	}()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	defer cancel(context.Canceled)
+	go func() {
+		select {
+		case <-interrupts:
+			cancel(agent.ErrRunInterrupted)
+		case <-ctx.Done():
+		}
+	}()
 
 	if config.tracePath != "" {
 		if err := runner.EnableTrace(trace.Writer{Path: config.tracePath}); err != nil {
@@ -64,9 +78,11 @@ func runAgentCLI(config config, runner *agent.Agent, input cliInput, output, err
 		}
 	}
 
-	ctx := context.Background()
 	if config.task == "" {
 		if err := runInteractive(ctx, runner, input, output); err != nil {
+			if errors.Is(err, agent.ErrRunInterrupted) {
+				return agent.RunStatusInterrupted
+			}
 			fmt.Fprintln(errorOutput, err)
 			return agent.RunStatusError
 		}

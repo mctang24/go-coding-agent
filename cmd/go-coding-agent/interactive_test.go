@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"go-coding-agent/internal/agent"
@@ -19,6 +20,22 @@ type interactiveModel struct {
 type signalingWriter struct {
 	strings.Builder
 	writes chan struct{}
+}
+
+type promptWriter struct {
+	strings.Builder
+	prompt chan struct{}
+}
+
+func (writer *promptWriter) Write(content []byte) (int, error) {
+	written, err := writer.Builder.Write(content)
+	if string(content) == "> " {
+		select {
+		case writer.prompt <- struct{}{}:
+		default:
+		}
+	}
+	return written, err
 }
 
 func (writer *signalingWriter) Write(content []byte) (int, error) {
@@ -152,6 +169,43 @@ func TestNewCLIInputRejectsNonTTY(t *testing.T) {
 	if _, err := newCLIInput(reader); err == nil || err.Error() != "stdin is not a TTY" {
 		t.Fatalf("newCLIInput() error = %v", err)
 	}
+}
+
+func TestRunAgentCLIExitsOnInterrupt(t *testing.T) {
+	runner, err := agent.NewAgent(t.TempDir(), &interactiveModel{}, "")
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	output := promptWriter{prompt: make(chan struct{}, 1)}
+	done := make(chan agent.RunStatus, 1)
+	go func() {
+		done <- runAgentCLI(config{}, runner, cliInput{scanner: bufio.NewScanner(reader)}, &output, &output)
+	}()
+
+	select {
+	case <-output.prompt:
+	case <-time.After(time.Second):
+		t.Fatal("interactive prompt was not written")
+	}
+	process, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("FindProcess() error = %v", err)
+	}
+	if err := process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("Signal() error = %v", err)
+	}
+
+	select {
+	case status := <-done:
+		if status != agent.RunStatusInterrupted {
+			t.Fatalf("runAgentCLI() status = %q, want interrupted", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runAgentCLI() did not stop after interrupt")
+	}
+	_ = writer.Close()
 }
 
 func TestNewlineTrackingWriter(t *testing.T) {
