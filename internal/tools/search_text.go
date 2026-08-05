@@ -11,7 +11,7 @@ import (
 )
 
 // searchText searches an existing path inside root with regular expressions.
-func searchText(_ context.Context, root, requested string, patterns []string) (string, error) {
+func searchText(ctx context.Context, root, requested string, patterns []string) (string, error) {
 	if len(patterns) == 0 {
 		return "", fmt.Errorf("search patterns are empty")
 	}
@@ -39,7 +39,7 @@ func searchText(_ context.Context, root, requested string, patterns []string) (s
 		args = append(args, "-e", pattern)
 	}
 	args = append(args, "--", target)
-	command := exec.Command("rg", args...)
+	command := exec.CommandContext(ctx, "rg", args...)
 	command.Dir = safeRoot
 	var output limitedOutput
 	command.Stdout = &output

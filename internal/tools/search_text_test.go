@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,16 @@ func TestSearchText(t *testing.T) {
 				t.Fatalf("got %q, want empty result", result)
 			}
 		})
+	}
+}
+
+func TestSearchTextStopsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := searchText(ctx, t.TempDir(), ".", []string{"target"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("searchText() error = %v, want context canceled", err)
 	}
 }
 

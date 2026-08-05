@@ -47,8 +47,8 @@ func runTaskWithInterrupt(ctx context.Context, runner *agent.Agent, task string,
 			_ = term.Restore(fd, state)
 		}
 	}()
-	if err := enableTTYSignals(fd); err != nil {
-		return agent.RunResult{}, fmt.Errorf("preserve terminal signals: %w", err)
+	if err := enableTTYSignalsAndOutput(fd); err != nil {
+		return agent.RunResult{}, fmt.Errorf("preserve terminal signal and output processing: %w", err)
 	}
 	runCtx, interrupt := context.WithCancelCause(ctx)
 	input := &ttyRunInput{
