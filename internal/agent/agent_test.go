@@ -733,6 +733,125 @@ func TestAgentRunDiscardsFailedConversation(t *testing.T) {
 	}
 }
 
+type interruptedModel struct {
+	cancel   context.CancelCauseFunc
+	requests []ModelRequest
+}
+
+func (model *interruptedModel) GenerateResponse(ctx context.Context, request ModelRequest) (ModelStream, error) {
+	model.requests = append(model.requests, request)
+	return &interruptedStream{ctx: ctx, cancel: model.cancel}, nil
+}
+
+func (*interruptedModel) EstimateRequestTokens(ModelRequest) (int, error) {
+	return 0, nil
+}
+
+type interruptedStream struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	sent   bool
+}
+
+func (stream *interruptedStream) Recv() (ModelStreamEvent, error) {
+	if !stream.sent {
+		stream.sent = true
+		stream.cancel(ErrRunInterrupted)
+		return ModelStreamEvent{TextDelta: "partial"}, nil
+	}
+	return ModelStreamEvent{}, stream.ctx.Err()
+}
+
+func (*interruptedStream) Close() error { return nil }
+
+func TestAgentRunPersistsModelInterruptionWithoutPartialResponse(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	model := &interruptedModel{cancel: cancel}
+	runner, err := newSessionAgent(t.TempDir(), t.TempDir(), model, "", "")
+	if err != nil {
+		t.Fatalf("newSessionAgent() error = %v", err)
+	}
+	var output strings.Builder
+
+	result, err := runner.Run(ctx, "question", func(delta string) error {
+		output.WriteString(delta)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != RunStatusInterrupted || output.String() != "partial" {
+		t.Fatalf("Run() = %#v, output = %q", result, output.String())
+	}
+	if len(runner.messages) != 2 || runner.messages[0].Content != "question" || runner.messages[1].Content != interruptedMessage {
+		t.Fatalf("messages = %#v", runner.messages)
+	}
+
+	restored, err := newSessionAgent(filepath.Dir(runner.sessionFile.path), runner.root, &modelStub{}, "", runner.SessionID())
+	if err != nil {
+		t.Fatalf("restore newSessionAgent() error = %v", err)
+	}
+	if len(restored.messages) != 2 || restored.messages[1].Content != interruptedMessage {
+		t.Fatalf("restored messages = %#v", restored.messages)
+	}
+}
+
+func TestAgentRunCompletesInterruptedToolRound(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	model := &modelStub{responses: []ModelResponse{{
+		Message: Message{Role: "assistant", ToolCalls: []ToolCall{
+			{ID: "call_1", Name: "first", Arguments: `{}`},
+			{ID: "call_2", Name: "second", Arguments: `{}`},
+			{ID: "call_3", Name: "third", Arguments: `{}`},
+		}},
+		Usage: TokenUsage{TotalTokens: 37},
+	}}}
+	thirdCalls := 0
+	runner, err := newSessionAgent(t.TempDir(), t.TempDir(), model, "", "")
+	if err != nil {
+		t.Fatalf("newSessionAgent() error = %v", err)
+	}
+	runner.tools = []tools.Tool{
+		{Name: "first", Execute: func(context.Context, string, string) (string, error) {
+			return "completed", nil
+		}},
+		{Name: "second", Execute: func(context.Context, string, string) (string, error) {
+			cancel(ErrRunInterrupted)
+			return "", ctx.Err()
+		}},
+		{Name: "third", Execute: func(context.Context, string, string) (string, error) {
+			thirdCalls++
+			return "unexpected", nil
+		}},
+	}
+
+	result, err := runner.Run(ctx, "question", nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != RunStatusInterrupted || thirdCalls != 0 {
+		t.Fatalf("Run() = %#v, third calls = %d", result, thirdCalls)
+	}
+	if len(runner.messages) != 4 {
+		t.Fatalf("messages = %#v", runner.messages)
+	}
+	results := runner.messages[2].ToolResults
+	if len(results) != 3 || results[0].Content != "completed" || results[0].IsError || results[1].Content != "aborted by user" || !results[1].IsError || results[2].Content != "aborted by user" || !results[2].IsError {
+		t.Fatalf("tool results = %#v", results)
+	}
+	if runner.messages[3].Content != interruptedMessage || runner.tokenUsage != 37 {
+		t.Fatalf("interruption message = %#v, token usage = %d", runner.messages[3], runner.tokenUsage)
+	}
+
+	restored, err := newSessionAgent(filepath.Dir(runner.sessionFile.path), runner.root, &modelStub{}, "", runner.SessionID())
+	if err != nil {
+		t.Fatalf("restore newSessionAgent() error = %v", err)
+	}
+	if len(restored.messages) != 4 || len(restored.messages[2].ToolResults) != 3 || restored.messages[3].Content != interruptedMessage {
+		t.Fatalf("restored messages = %#v", restored.messages)
+	}
+}
+
 func TestAgentRunKeepsCompletedToolRoundWhenNextModelRequestFails(t *testing.T) {
 	modelErr := errors.New("second request failed")
 	model := &modelStub{

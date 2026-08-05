@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/goccy/go-json"
 	"strings"
+
+	"github.com/goccy/go-json"
 
 	"go-coding-agent/internal/tools"
 )
@@ -49,6 +50,9 @@ func (agent *Agent) executeToolCall(ctx context.Context, call ToolCall) (ToolRes
 	result, err := agent.executeTool(ctx, call.Name, call.Arguments)
 	agent.recordToolExecution(call, result, err)
 	if err != nil {
+		if isRunInterrupted(ctx) {
+			return ToolResult{ToolCallID: call.ID, Content: "aborted by user", IsError: true}, nil
+		}
 		return ToolResult{ToolCallID: call.ID, Content: err.Error(), IsError: true}, nil
 	}
 	if call.Name == "finish_task" {

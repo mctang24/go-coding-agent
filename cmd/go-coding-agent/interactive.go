@@ -4,12 +4,40 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/goccy/go-json"
-	"go-coding-agent/internal/agent"
-	"go-coding-agent/internal/tools"
 	"io"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
+
+	"go-coding-agent/internal/agent"
 )
+
+type cliInput struct {
+	scanner *bufio.Scanner
+	fd      int
+}
+
+func newCLIInput(file *os.File) (cliInput, error) {
+	fd := int(file.Fd())
+	if !term.IsTerminal(fd) {
+		return cliInput{}, fmt.Errorf("stdin is not a TTY")
+	}
+	return cliInput{scanner: bufio.NewScanner(file), fd: fd}, nil
+}
+
+type newlineTrackingWriter struct {
+	io.Writer
+	needsNewline bool
+}
+
+func (output *newlineTrackingWriter) Write(content []byte) (int, error) {
+	written, err := output.Writer.Write(content)
+	if written > 0 {
+		output.needsNewline = content[written-1] != '\n'
+	}
+	return written, err
+}
 
 func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Writer) (agent.RunResult, error) {
 	return runner.Run(ctx, task, func(delta string) error {
@@ -19,13 +47,13 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 }
 
 // runInteractive runs an in-memory conversation until the user exits.
-func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Scanner, output io.Writer) error {
+func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, output io.Writer) error {
 	for {
 		fmt.Fprint(output, "> ")
-		if !scanner.Scan() {
-			return scanner.Err()
+		if !input.scanner.Scan() {
+			return input.scanner.Err()
 		}
-		task := strings.TrimSpace(scanner.Text())
+		task := strings.TrimSpace(input.scanner.Text())
 		switch task {
 		case "":
 			continue
@@ -49,13 +77,19 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 			continue
 		}
 
-		result, err := runTask(ctx, runner, task, output)
-		fmt.Fprintln(output)
+		runOutput := &newlineTrackingWriter{Writer: output}
+		result, err := runTaskWithInterrupt(ctx, runner, task, input.fd, runOutput)
+		if runOutput.needsNewline {
+			fmt.Fprintln(output)
+		}
 		if err != nil {
 			fmt.Fprintln(output, err)
 			continue
 		}
-		if result.Status == agent.RunStatusIncomplete {
+		switch result.Status {
+		case agent.RunStatusInterrupted:
+			fmt.Fprintln(output, "interrupted")
+		case agent.RunStatusIncomplete:
 			fmt.Fprintln(output, "task incomplete: completion was not confirmed or changes are not verified")
 		}
 	}
@@ -64,36 +98,5 @@ func runInteractive(ctx context.Context, runner *agent.Agent, scanner *bufio.Sca
 func printSessionID(output io.Writer, sessionID string) {
 	if sessionID != "" {
 		fmt.Fprintf(output, "sessionId: %s\n", sessionID)
-	}
-}
-
-func newScannerCommandApprover(scanner *bufio.Scanner, output io.Writer) tools.CommandApprover {
-	return func(_ context.Context, request tools.CommandRequest) (bool, error) {
-		command, err := json.Marshal(append([]string{request.Command}, request.Args...))
-		if err != nil {
-			return false, fmt.Errorf("format command approval: %w", err)
-		}
-		return scanApproval(scanner, output, fmt.Sprintf("允许 %s 执行 %s？[Y/n] ", request.Tool, command))
-	}
-}
-
-func newScannerWriteApprover(scanner *bufio.Scanner, output io.Writer) tools.WriteApprover {
-	return func(_ context.Context, request tools.WriteRequest) (bool, error) {
-		return scanApproval(scanner, output, fmt.Sprintf("允许 %s 写入 %q？[Y/n] ", request.Tool, request.Path))
-	}
-}
-
-func scanApproval(scanner *bufio.Scanner, output io.Writer, prompt string) (bool, error) {
-	for {
-		fmt.Fprint(output, prompt)
-		if !scanner.Scan() {
-			return false, scanner.Err()
-		}
-		switch strings.TrimSpace(strings.ToLower(scanner.Text())) {
-		case "", "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		}
 	}
 }

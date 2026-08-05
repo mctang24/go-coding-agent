@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"os"
+
 	"go-coding-agent/internal/agent"
 	"go-coding-agent/internal/deepseek"
 	"go-coding-agent/internal/trace"
-	"io"
-	"os"
 )
 
 const systemPrompt = `你是终端代码检索专家，务必严格遵守以下规则：
@@ -34,6 +34,11 @@ func runCLI() agent.RunStatus {
 		fmt.Fprintln(os.Stderr, err)
 		return agent.RunStatusError
 	}
+	input, err := newCLIInput(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return agent.RunStatusError
+	}
 	client, err := deepseek.NewClient(os.Getenv("DEEPSEEK_API_KEY"), "", "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -44,10 +49,10 @@ func runCLI() agent.RunStatus {
 		fmt.Fprintln(os.Stderr, err)
 		return agent.RunStatusError
 	}
-	return runAgentCLI(config, runner, os.Stdin, os.Stdout, os.Stderr)
+	return runAgentCLI(config, runner, input, os.Stdout, os.Stderr)
 }
 
-func runAgentCLI(config config, runner *agent.Agent, input io.Reader, output, errorOutput io.Writer) agent.RunStatus {
+func runAgentCLI(config config, runner *agent.Agent, input cliInput, output, errorOutput io.Writer) agent.RunStatus {
 	defer func() {
 		printSessionID(output, runner.SessionID())
 	}()
@@ -60,25 +65,26 @@ func runAgentCLI(config config, runner *agent.Agent, input io.Reader, output, er
 	}
 
 	ctx := context.Background()
-	scanner := bufio.NewScanner(input)
-	runner.SetWriteApprover(newScannerWriteApprover(scanner, output))
-	runner.SetCommandApprover(newScannerCommandApprover(scanner, output))
-
 	if config.task == "" {
-		if err := runInteractive(ctx, runner, scanner, output); err != nil {
+		if err := runInteractive(ctx, runner, input, output); err != nil {
 			fmt.Fprintln(errorOutput, err)
 			return agent.RunStatusError
 		}
 		return agent.RunStatusSuccess
 	}
-	result, err := runTask(ctx, runner, config.task, output)
-	fmt.Fprintln(output)
+	runOutput := &newlineTrackingWriter{Writer: output}
+	result, err := runTaskWithInterrupt(ctx, runner, config.task, input.fd, runOutput)
+	if runOutput.needsNewline {
+		fmt.Fprintln(output)
+	}
 	if err != nil {
 		fmt.Fprintln(errorOutput, err)
 		return agent.RunStatusError
 	}
 	if result.Status == agent.RunStatusIncomplete {
 		fmt.Fprintln(errorOutput, "task incomplete: completion was not confirmed or changes are not verified")
+	} else if result.Status == agent.RunStatusInterrupted {
+		fmt.Fprintln(errorOutput, "interrupted")
 	}
 	return result.Status
 }
@@ -87,7 +93,7 @@ func exitCode(status agent.RunStatus) int {
 	switch status {
 	case agent.RunStatusSuccess:
 		return 0
-	case agent.RunStatusIncomplete:
+	case agent.RunStatusIncomplete, agent.RunStatusInterrupted:
 		return 1
 	default:
 		return 2

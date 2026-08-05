@@ -2,16 +2,23 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/goccy/go-json"
-	"go-coding-agent/internal/tools"
-	"go-coding-agent/internal/trace"
 	"io"
 	"path/filepath"
 	"time"
+
+	"github.com/goccy/go-json"
+
+	"go-coding-agent/internal/tools"
+	"go-coding-agent/internal/trace"
 )
 
 const defaultMaxTurns = 20
+
+const interruptedMessage = "<turn_aborted>\nThe user interrupted the previous turn. Tools or commands may have partially executed; inspect the current state before retrying.\n</turn_aborted>"
+
+var ErrRunInterrupted = errors.New("run interrupted by user")
 
 type Agent struct {
 	root                string
@@ -53,9 +60,10 @@ type RunResult struct {
 type RunStatus string
 
 const (
-	RunStatusSuccess    RunStatus = "success"
-	RunStatusIncomplete RunStatus = "incomplete"
-	RunStatusError      RunStatus = "error"
+	RunStatusSuccess     RunStatus = "success"
+	RunStatusIncomplete  RunStatus = "incomplete"
+	RunStatusInterrupted RunStatus = "interrupted"
+	RunStatusError       RunStatus = "error"
 )
 
 // NewAgent creates an agent with workspace tools.
@@ -109,8 +117,11 @@ func (agent *Agent) SessionID() string {
 func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaHandler) (result RunResult, runErr error) {
 	var currentTrace *runTrace
 	taskFinished := false
+	interrupted := false
 	defer func() {
 		switch {
+		case interrupted:
+			result.Status = RunStatusInterrupted
 		case runErr != nil:
 			result.Status = RunStatusError
 		case !taskFinished || agent.hasUnverifiedChange:
@@ -134,6 +145,15 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 	}
 	if shouldCompact(agent.tokenUsage, defaultContextWindow) {
 		if err := agent.Compact(ctx); err != nil {
+			if isRunInterrupted(ctx) {
+				messages := append(agent.messages, Message{Role: "user", Content: task})
+				messages = appendInterruption(messages)
+				if err := agent.commitRun(messages[len(agent.messages):], messages, agent.tokenUsage); err != nil {
+					return RunResult{}, fmt.Errorf("agent run: %w", err)
+				}
+				interrupted = true
+				return RunResult{}, nil
+			}
 			return RunResult{}, fmt.Errorf("agent run: automatic compact: %w", err)
 		}
 	}
@@ -155,6 +175,14 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 		}
 		response, err := agent.callModel(ctx, request, onTextDelta, currentTrace, turn+1)
 		if err != nil {
+			if isRunInterrupted(ctx) {
+				messages = appendInterruption(messages)
+				if err := agent.commitRun(messages[committedMessageCount:], messages, agent.tokenUsage); err != nil {
+					return RunResult{}, fmt.Errorf("agent run: %w", err)
+				}
+				interrupted = true
+				return RunResult{}, nil
+			}
 			return RunResult{}, fmt.Errorf("agent run: %w", err)
 		}
 
@@ -182,10 +210,17 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			return RunResult{}, err
 		}
 		messages = append(messages, Message{Role: "tool", ToolResults: toolResults})
+		interrupted = isRunInterrupted(ctx)
+		if interrupted {
+			messages = appendInterruption(messages)
+		}
 		if err := agent.commitRun(messages[committedMessageCount:], messages, response.Usage.TotalTokens); err != nil {
 			return RunResult{}, fmt.Errorf("agent run: %w", err)
 		}
 		committedMessageCount = len(messages)
+		if interrupted {
+			return RunResult{}, nil
+		}
 		if completed != nil {
 			if onTextDelta != nil {
 				if err := onTextDelta(completed.Result); err != nil {
@@ -198,6 +233,14 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 	}
 
 	return RunResult{}, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
+}
+
+func appendInterruption(messages []Message) []Message {
+	return append(messages, Message{Role: "user", Content: interruptedMessage})
+}
+
+func isRunInterrupted(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), ErrRunInterrupted)
 }
 
 func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) error {
@@ -216,6 +259,9 @@ func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) e
 }
 
 func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, current *runTrace, turn int) ([]ToolResult, *tools.FinishTaskResult, error) {
+	if isRunInterrupted(ctx) {
+		return rejectedToolResults(calls, "aborted by user"), nil, nil
+	}
 	if hasMixedFinishTask(calls) {
 		return rejectedToolResults(calls, "finish_task must be the only tool call in a response"), nil, nil
 	}
@@ -241,7 +287,11 @@ func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, curr
 	}
 
 	results := make([]ToolResult, 0, len(calls))
-	for _, call := range calls {
+	for index, call := range calls {
+		if isRunInterrupted(ctx) {
+			results = append(results, rejectedToolResults(calls[index:], "aborted by user")...)
+			break
+		}
 		result, err := agent.callTool(ctx, call, current, turn)
 		if err != nil {
 			return nil, nil, err

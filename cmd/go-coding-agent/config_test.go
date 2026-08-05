@@ -54,6 +54,7 @@ func TestExitCode(t *testing.T) {
 	}{
 		{status: agent.RunStatusSuccess, want: 0},
 		{status: agent.RunStatusIncomplete, want: 1},
+		{status: agent.RunStatusInterrupted, want: 1},
 		{status: agent.RunStatusError, want: 2},
 	}
 	for _, test := range tests {
