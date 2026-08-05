@@ -13,7 +13,7 @@ Built from scratch in Go for real-world software engineering, this Coding Agent 
 | --- | --- |
 | Agent runtime | Streaming responses, tool calling, bounded loops, and safe termination |
 | Safety boundaries | Workspace isolation, symlink escape protection, read-before-write checks, conflict detection, and explicit approval |
-| Task completion | Code analysis, changes, command execution, and final verification driven by `finish_task` |
+| Task completion | Code analysis, changes, command execution, and final verification |
 | Context management | Incremental JSONL persistence, context compaction, Session recovery, and interruption state |
 | Observability | Optional JSONL traces for agent runs, model calls, tool execution, and verification state |
 
