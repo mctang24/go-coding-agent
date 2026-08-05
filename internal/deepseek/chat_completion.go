@@ -54,7 +54,7 @@ type chatCompletionRequestBody struct {
 	Options  streamOptions    `json:"stream_options"`
 }
 
-func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chatCompletionRequest) (*chatCompletionStream, error) {
+func (client *DeepSeekClient) createChatCompletion(ctx context.Context, input chatCompletionRequest) (*chatCompletionStream, error) {
 	if client.apiKey == "" {
 		return nil, fmt.Errorf("DeepSeek API key is empty")
 	}
@@ -68,7 +68,7 @@ func (client *DeepSeekClient) createChatCompletion(_ context.Context, input chat
 	}
 
 	endpoint := strings.TrimRight(client.baseURL, "/") + "/chat/completions"
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(requestBody))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek create chat completion request: %w", err)
 	}

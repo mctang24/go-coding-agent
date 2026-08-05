@@ -2,12 +2,14 @@ package deepseek
 
 import (
 	"context"
+	"errors"
 	"go-coding-agent/internal/tools"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateChatCompletion(t *testing.T) {
@@ -72,6 +74,46 @@ func TestCreateChatCompletion(t *testing.T) {
 	}
 	if response.Usage.PromptTokens != 17 || response.Usage.CompletionTokens != 9 || response.Usage.TotalTokens != 26 {
 		t.Errorf("response usage = %#v, want 17 prompt, 9 completion, 26 total", response.Usage)
+	}
+}
+
+func TestCreateChatCompletionCancelsStreamRead(t *testing.T) {
+	requestCanceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-request.Context().Done()
+		close(requestCanceled)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := DeepSeekClient{httpClient: server.Client(), baseURL: server.URL, apiKey: "test-key", model: "deepseek-v4-flash"}
+	stream, err := client.createChatCompletion(ctx, chatCompletionRequest{Messages: []message{{Role: "user", Content: new("test")}}})
+	if err != nil {
+		t.Fatalf("createChatCompletion() error = %v", err)
+	}
+	defer stream.Close()
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := stream.Recv()
+		readDone <- err
+	}()
+	cancel()
+
+	select {
+	case err := <-readDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Recv() error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Recv() did not stop after context cancellation")
+	}
+	select {
+	case <-requestCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("server request context was not canceled")
 	}
 }
 
