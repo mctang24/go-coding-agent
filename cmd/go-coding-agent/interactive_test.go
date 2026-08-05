@@ -205,6 +205,9 @@ func TestRunAgentCLIExitsOnInterrupt(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("runAgentCLI() did not stop after interrupt")
 	}
+	if want := "> \n"; output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
 	_ = writer.Close()
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,6 +57,9 @@ func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, ou
 		}()
 		select {
 		case <-ctx.Done():
+			if errors.Is(context.Cause(ctx), agent.ErrRunInterrupted) {
+				fmt.Fprintln(output)
+			}
 			return context.Cause(ctx)
 		case ok := <-scanned:
 			if !ok {
