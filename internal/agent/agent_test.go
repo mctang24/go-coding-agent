@@ -201,7 +201,7 @@ func TestAgentRun(t *testing.T) {
 	}
 }
 
-func TestAgentRunStopsWithoutFinishIncomplete(t *testing.T) {
+func TestAgentRunReadOnlyResponseSucceedsWithoutFinish(t *testing.T) {
 	runner := Agent{
 		model:    &modelStub{responses: []ModelResponse{{Message: Message{Role: "assistant", Content: "not finished"}}}},
 		maxTurns: 1,
@@ -211,7 +211,7 @@ func TestAgentRunStopsWithoutFinishIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.Content != "not finished" || result.Status != RunStatusIncomplete {
+	if result.Content != "not finished" || result.Status != RunStatusSuccess {
 		t.Fatalf("Run() = %#v", result)
 	}
 }
@@ -400,8 +400,8 @@ func TestAgentRunReturnsWriteDenialToModel(t *testing.T) {
 	if err != nil || result.Content != "cancelled" {
 		t.Fatalf("result = %#v, error = %v", result, err)
 	}
-	if result.Status != RunStatusIncomplete {
-		t.Fatalf("status = %q, want incomplete", result.Status)
+	if result.Status != RunStatusSuccess {
+		t.Fatalf("status = %q, want success", result.Status)
 	}
 	if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
 		t.Fatalf("new file stat error = %v", err)

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,17 +12,12 @@ import (
 	"go-coding-agent/internal/agent"
 )
 
-type cliInput struct {
-	scanner *bufio.Scanner
-	fd      int
-}
-
-func newCLIInput(file *os.File) (cliInput, error) {
+func newCLIInput(file *os.File) (int, error) {
 	fd := int(file.Fd())
 	if !term.IsTerminal(fd) {
-		return cliInput{}, fmt.Errorf("stdin is not a TTY")
+		return 0, fmt.Errorf("stdin is not a TTY")
 	}
-	return cliInput{scanner: bufio.NewScanner(file), fd: fd}, nil
+	return fd, nil
 }
 
 type newlineTrackingWriter struct {
@@ -48,25 +41,14 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 }
 
 // runInteractive runs an in-memory conversation until the user exits.
-func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, output io.Writer) error {
+func runInteractive(ctx context.Context, runner *agent.Agent, fd int, output io.Writer) error {
 	for {
 		fmt.Fprint(output, "> ")
-		scanned := make(chan bool, 1)
-		go func() {
-			scanned <- input.scanner.Scan()
-		}()
-		select {
-		case <-ctx.Done():
-			if errors.Is(context.Cause(ctx), agent.ErrRunInterrupted) {
-				fmt.Fprintln(output)
-			}
-			return context.Cause(ctx)
-		case ok := <-scanned:
-			if !ok {
-				return input.scanner.Err()
-			}
+		task, err := readTTYLine(ctx, fd, output)
+		if err != nil {
+			return err
 		}
-		task := strings.TrimSpace(input.scanner.Text())
+		task = strings.TrimSpace(task)
 		switch task {
 		case "":
 			continue
@@ -94,7 +76,7 @@ func runInteractive(ctx context.Context, runner *agent.Agent, input cliInput, ou
 		}
 
 		runOutput := &newlineTrackingWriter{Writer: output}
-		result, err := runTaskWithInterrupt(ctx, runner, task, input.fd, runOutput)
+		result, err := runTaskWithInterrupt(ctx, runner, task, fd, runOutput)
 		if runOutput.needsNewline {
 			fmt.Fprintln(output)
 		}

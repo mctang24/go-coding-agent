@@ -116,7 +116,6 @@ func (agent *Agent) SessionID() string {
 // Run continues the conversation until the model completes or stops the task.
 func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaHandler) (result RunResult, runErr error) {
 	var currentTrace *runTrace
-	taskFinished := false
 	interrupted := false
 	defer func() {
 		switch {
@@ -124,7 +123,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			result.Status = RunStatusInterrupted
 		case runErr != nil:
 			result.Status = RunStatusError
-		case !taskFinished || agent.hasUnverifiedChange:
+		case agent.hasUnverifiedChange:
 			result.Status = RunStatusIncomplete
 		default:
 			result.Status = RunStatusSuccess
@@ -227,7 +226,6 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 					return RunResult{}, fmt.Errorf("agent run: write finish_task result: %w", err)
 				}
 			}
-			taskFinished = true
 			return RunResult{Content: completed.Result}, nil
 		}
 	}
