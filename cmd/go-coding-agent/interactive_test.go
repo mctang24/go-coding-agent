@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"go-coding-agent/internal/agent"
@@ -11,6 +12,18 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWorkingOutputStopsBeforeOutput(t *testing.T) {
+	var output bytes.Buffer
+	stopped := false
+	status := workingOutput{output: &output, stop: func() { stopped = true }}
+	if _, err := status.Write([]byte("answer")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if !stopped || output.String() != "answer" {
+		t.Fatalf("stopped = %v, output = %q", stopped, output.String())
+	}
+}
 
 type interactiveModel struct {
 	responses []agent.ModelResponse

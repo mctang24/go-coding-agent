@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
+	"time"
 
 	"github.com/goccy/go-json"
 	"golang.org/x/sys/unix"
@@ -48,6 +50,45 @@ type ttyRunInput struct {
 	approvals chan ttyApproval
 }
 
+type workingOutput struct {
+	output io.Writer
+	stop   func()
+}
+
+func (output workingOutput) Write(content []byte) (int, error) {
+	output.stop()
+	return output.output.Write(content)
+}
+
+func startWorkingStatus(output io.Writer) func() {
+	startedAt := time.Now()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var stopOnce sync.Once
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		defer close(done)
+		for {
+			select {
+			case now := <-ticker.C:
+				seconds := int(now.Sub(startedAt).Seconds())
+				_, _ = fmt.Fprintf(output, "\rworking %ds", seconds)
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() {
+		stopOnce.Do(func() {
+			close(stop)
+			<-done
+			// Return to the line start and clear the working status.
+			_, _ = fmt.Fprint(output, "\r\x1b[2K")
+		})
+	}
+}
+
 func runTaskWithInterrupt(ctx context.Context, runner *agent.Agent, task string, fd int, output io.Writer) (agent.RunResult, error) {
 	state, err := term.MakeRaw(fd)
 	if err != nil {
@@ -70,12 +111,15 @@ func runTaskWithInterrupt(ctx context.Context, runner *agent.Agent, task string,
 	}
 	runner.SetWriteApprover(input.approveWrite)
 	runner.SetCommandApprover(input.approveCommand)
+	stopWorking := startWorkingStatus(output)
+	defer stopWorking()
+	statusOutput := workingOutput{output: output, stop: stopWorking}
 	inputDone := make(chan error, 1)
 	go func() {
-		inputDone <- input.listen(runCtx, output)
+		inputDone <- input.listen(runCtx, statusOutput)
 	}()
 
-	result, runErr := runTask(runCtx, runner, task, output)
+	result, runErr := runTask(runCtx, runner, task, statusOutput)
 	interrupt(context.Canceled)
 	inputErr := <-inputDone
 	restoreErr := term.Restore(fd, state)
