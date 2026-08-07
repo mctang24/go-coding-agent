@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/cogentcore/readline"
 	"golang.org/x/term"
 
 	"go-coding-agent/internal/agent"
@@ -42,10 +44,29 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 
 // runInteractive runs an in-memory conversation until the user exits.
 func runInteractive(ctx context.Context, runner *agent.Agent, fd int, output io.Writer) error {
+	input := os.NewFile(uintptr(fd), "stdin")
+	lineReader, err := readline.NewFromConfig(&readline.Config{
+		Prompt:          "> ",
+		Stdin:           input,
+		Stdout:          output,
+		Stderr:          output,
+		InterruptPrompt: "\n",
+		HistoryLimit:    -1,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize line editor: %w", err)
+	}
+	defer func() { _ = lineReader.Close() }()
+
 	for {
-		fmt.Fprint(output, "> ")
-		task, err := readTTYLine(ctx, fd, output)
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		task, err := lineReader.ReadLine()
 		if err != nil {
+			if errors.Is(err, readline.ErrInterrupt) {
+				return agent.ErrRunInterrupted
+			}
 			return err
 		}
 		task = strings.TrimSpace(task)

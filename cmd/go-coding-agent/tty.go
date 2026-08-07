@@ -19,24 +19,12 @@ import (
 const (
 	// ttyPollTimeoutMS limits how long the input loop waits before checking cancellation again.
 	ttyPollTimeoutMS = 25
-
-	// ttyCarriageReturn submits input on terminals that emit carriage return for Enter.
+	// ttyCarriageReturn and ttyLineFeed are the two Enter bytes emitted by terminals.
 	ttyCarriageReturn byte = '\r'
 	// ttyLineFeed submits input on terminals that emit line feed for Enter.
 	ttyLineFeed byte = '\n'
 	// ttyEscape is the byte emitted by the Esc key.
 	ttyEscape byte = 0x1b
-	// ttyBackspace is the control byte emitted by Backspace on some terminals.
-	ttyBackspace byte = 0x08
-	// ttyDelete is the control byte emitted by Delete on terminals.
-	ttyDelete byte = 0x7f
-	// ttyControlByteLimit separates control bytes from printable input.
-	ttyControlByteLimit byte = 0x20
-	// ttyEscapeSequenceStart and ttyEscapeSequenceEnd delimit CSI sequence endings.
-	ttyEscapeSequenceStart byte = 0x40
-	ttyEscapeSequenceEnd   byte = 0x7e
-	// ttyWideRuneStart is the lower bound used for wide terminal characters.
-	ttyWideRuneStart rune = 0x1100
 )
 
 type ttyApproval struct {
