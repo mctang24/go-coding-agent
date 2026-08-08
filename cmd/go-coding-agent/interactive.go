@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/reeflective/readline"
+	"github.com/nao1215/prompt"
 	"golang.org/x/term"
 
 	"go-coding-agent/internal/agent"
@@ -44,17 +44,19 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 
 // runInteractive runs an in-memory conversation until the user exits.
 func runInteractive(ctx context.Context, runner *agent.Agent, fd int, output io.Writer) error {
-	lineReader := readline.NewShell()
-	_ = lineReader.Config.Set("enable-bracketed-paste", true)
-	lineReader.Prompt.Primary(func() string { return "> " })
+	lineReader, err := prompt.New("> ")
+	if err != nil {
+		return fmt.Errorf("create terminal prompt: %w", err)
+	}
+	defer lineReader.Close()
 
 	for {
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
-		task, err := lineReader.Readline()
+		task, err := lineReader.RunWithContext(ctx)
 		if err != nil {
-			if errors.Is(err, readline.ErrInterrupt) {
+			if errors.Is(err, prompt.ErrInterrupted) {
 				return agent.ErrRunInterrupted
 			}
 			return err
