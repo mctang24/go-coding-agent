@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/goccy/go-json"
 	"os"
@@ -118,10 +117,6 @@ func TestRunCommandTimeout(t *testing.T) {
 	_, err := run.Execute(context.Background(), t.TempDir(), helperCommandArguments("sleep"))
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout error = %v", err)
-	}
-	var executionErr *CommandExecutionError
-	if !errors.As(err, &executionErr) {
-		t.Fatalf("timeout error type = %T, want *CommandExecutionError", err)
 	}
 }
 

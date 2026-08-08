@@ -30,37 +30,21 @@ type sessionFile struct {
 	rootPath string
 }
 
-// verificationFact is retained for replaying older Session records.
-type verificationFact struct {
-	Tool     string `json:"tool"`
-	Command  string `json:"command"`
-	ExitCode *int   `json:"exitCode,omitempty"`
-	Error    string `json:"error,omitempty"`
-}
-
-type verificationState struct {
-	HasUnverifiedChange bool              `json:"hasUnverifiedChange"`
-	LastVerification    *verificationFact `json:"lastVerification,omitempty"`
-}
-
 type runCommitRecord struct {
-	Type              string            `json:"type"`
-	Messages          []Message         `json:"messages"`
-	TokenUsage        int               `json:"tokenUsage"`
-	VerificationState verificationState `json:"verificationState"`
+	Type       string    `json:"type"`
+	Messages   []Message `json:"messages"`
+	TokenUsage int       `json:"tokenUsage"`
 }
 
 type compactionRecord struct {
-	Type               string            `json:"type"`
-	ReplacementHistory []Message         `json:"replacementHistory"`
-	TokenUsage         int               `json:"tokenUsage"`
-	VerificationState  verificationState `json:"verificationState"`
+	Type               string    `json:"type"`
+	ReplacementHistory []Message `json:"replacementHistory"`
+	TokenUsage         int       `json:"tokenUsage"`
 }
 
 type restoredSessionState struct {
-	messages     []Message
-	tokenUsage   int
-	verification verificationState
+	messages   []Message
+	tokenUsage int
 }
 
 // NewSessionAgent creates an Agent backed by a new or existing Session.
@@ -161,12 +145,11 @@ func newSessionFile(sessionDir, root string) (created sessionFile, err error) {
 	return sessionFile{id: sessionID, path: path, rootPath: rootPath}, nil
 }
 
-func (file sessionFile) appendRunCommit(messages []Message, tokenUsage int, verification verificationState) error {
+func (file sessionFile) appendRunCommit(messages []Message, tokenUsage int) error {
 	record := runCommitRecord{
-		Type:              "run_commit",
-		Messages:          messages,
-		TokenUsage:        tokenUsage,
-		VerificationState: verification,
+		Type:       "run_commit",
+		Messages:   messages,
+		TokenUsage: tokenUsage,
 	}
 	if err := file.appendRecord(record); err != nil {
 		return fmt.Errorf("append run commit: %w", err)
@@ -174,12 +157,11 @@ func (file sessionFile) appendRunCommit(messages []Message, tokenUsage int, veri
 	return nil
 }
 
-func (file sessionFile) appendCompaction(replacementHistory []Message, tokenUsage int, verification verificationState) error {
+func (file sessionFile) appendCompaction(replacementHistory []Message, tokenUsage int) error {
 	record := compactionRecord{
 		Type:               "compaction",
 		ReplacementHistory: replacementHistory,
 		TokenUsage:         tokenUsage,
-		VerificationState:  verification,
 	}
 	if err := file.appendRecord(record); err != nil {
 		return fmt.Errorf("append compaction: %w", err)
@@ -273,7 +255,7 @@ func restoreSessionFile(sessionDir, sessionID, root string) (sessionFile, restor
 		}
 		switch recordType {
 		case "run_commit":
-			if !hasRequiredSessionFields(fields, "messages", "tokenUsage", "verificationState") {
+			if !hasRequiredSessionFields(fields, "messages", "tokenUsage") {
 				continue
 			}
 			var record runCommitRecord
@@ -282,9 +264,8 @@ func restoreSessionFile(sessionDir, sessionID, root string) (sessionFile, restor
 			}
 			state.messages = append(state.messages, record.Messages...)
 			state.tokenUsage = record.TokenUsage
-			state.verification = record.VerificationState
 		case "compaction":
-			if !hasRequiredSessionFields(fields, "replacementHistory", "tokenUsage", "verificationState") {
+			if !hasRequiredSessionFields(fields, "replacementHistory", "tokenUsage") {
 				continue
 			}
 			var record compactionRecord
@@ -293,7 +274,6 @@ func restoreSessionFile(sessionDir, sessionID, root string) (sessionFile, restor
 			}
 			state.messages = record.ReplacementHistory
 			state.tokenUsage = record.TokenUsage
-			state.verification = record.VerificationState
 		default:
 			continue
 		}

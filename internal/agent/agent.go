@@ -228,7 +228,7 @@ func isRunInterrupted(ctx context.Context) bool {
 
 func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) error {
 	if agent.sessionFile != nil {
-		if err := agent.sessionFile.appendRunCommit(newMessages, tokenUsage, verificationState{}); err != nil {
+		if err := agent.sessionFile.appendRunCommit(newMessages, tokenUsage); err != nil {
 			return fmt.Errorf("persist session: %w", err)
 		}
 	}

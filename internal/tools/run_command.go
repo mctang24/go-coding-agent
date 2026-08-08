@@ -25,47 +25,38 @@ type CommandResult struct {
 	Stderr   string `json:"stderr"`
 }
 
-// CommandExecutionError reports a failure after the command process started.
-type CommandExecutionError struct {
-	Err error
-}
-
-func (err *CommandExecutionError) Error() string {
-	return err.Err.Error()
-}
-
-func (err *CommandExecutionError) Unwrap() error {
-	return err.Err
-}
-
 func (workspaceTools *WorkspaceTools) executeRunCommand(ctx context.Context, root, arguments string) (string, error) {
 	var input CommandInput
 	if err := decodeArguments(arguments, &input); err != nil {
 		return "", fmt.Errorf("execute run_command: decode arguments: %w", err)
 	}
-	result, err := workspaceTools.runCommand(ctx, root, "run_command", input)
+	result, err := workspaceTools.runCommand(ctx, root, input)
 	if err != nil {
 		return "", err
 	}
-	return encodeResult("run_command", result)
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("execute run_command: encode result: %w", err)
+	}
+	return string(encoded), nil
 }
 
-func (workspaceTools *WorkspaceTools) runCommand(ctx context.Context, root, toolName string, input CommandInput) (CommandResult, error) {
+func (workspaceTools *WorkspaceTools) runCommand(ctx context.Context, root string, input CommandInput) (CommandResult, error) {
 	if input.Command == "" {
-		return CommandResult{}, fmt.Errorf("execute %s: command is empty", toolName)
+		return CommandResult{}, fmt.Errorf("execute run_command: command is empty")
 	}
 	if input.Args == nil {
-		return CommandResult{}, fmt.Errorf("execute %s: args is required", toolName)
+		return CommandResult{}, fmt.Errorf("execute run_command: args is required")
 	}
 	if workspaceTools.commandApprover == nil {
-		return CommandResult{}, fmt.Errorf("execute %s: command approval is not configured", toolName)
+		return CommandResult{}, fmt.Errorf("execute run_command: command approval is not configured")
 	}
-	approved, err := workspaceTools.commandApprover(ctx, CommandRequest{Tool: toolName, Command: input.Command, Args: input.Args})
+	approved, err := workspaceTools.commandApprover(ctx, CommandRequest{Tool: "run_command", Command: input.Command, Args: input.Args})
 	if err != nil {
-		return CommandResult{}, fmt.Errorf("execute %s: request approval: %w", toolName, err)
+		return CommandResult{}, fmt.Errorf("execute run_command: request approval: %w", err)
 	}
 	if !approved {
-		return CommandResult{}, fmt.Errorf("execute %s: user denied command", toolName)
+		return CommandResult{}, fmt.Errorf("execute run_command: user denied command")
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, workspaceTools.commandTimeout)
@@ -75,34 +66,24 @@ func (workspaceTools *WorkspaceTools) runCommand(ctx context.Context, root, tool
 	var stdout, stderr limitedOutput
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	if err := command.Start(); err != nil {
-		return CommandResult{}, fmt.Errorf("execute %s: start command: %w", toolName, err)
-	}
-	waitErr := command.Wait()
+	runErr := command.Run()
 	result := CommandResult{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
 	}
 
-	exitError, isExitError := waitErr.(*exec.ExitError)
-	switch {
-	case errors.Is(commandCtx.Err(), context.DeadlineExceeded):
-		return CommandResult{}, &CommandExecutionError{Err: fmt.Errorf("execute %s: command timed out after %s", toolName, workspaceTools.commandTimeout)}
-	case commandCtx.Err() != nil:
-		return CommandResult{}, &CommandExecutionError{Err: fmt.Errorf("execute %s: command cancelled: %w", toolName, commandCtx.Err())}
-	case waitErr == nil:
-	case isExitError:
+	if errors.Is(commandCtx.Err(), context.DeadlineExceeded) {
+		return CommandResult{}, fmt.Errorf("execute run_command: command timed out after %s", workspaceTools.commandTimeout)
+	}
+	if commandCtx.Err() != nil {
+		return CommandResult{}, fmt.Errorf("execute run_command: command cancelled: %w", commandCtx.Err())
+	}
+	if runErr == nil {
+		return result, nil
+	}
+	if exitError, ok := runErr.(*exec.ExitError); ok {
 		result.ExitCode = exitError.ExitCode()
-	default:
-		return CommandResult{}, &CommandExecutionError{Err: fmt.Errorf("execute %s: wait for command: %w", toolName, waitErr)}
+		return result, nil
 	}
-	return result, nil
-}
-
-func encodeResult(toolName string, result any) (string, error) {
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("execute %s: encode result: %w", toolName, err)
-	}
-	return string(encoded), nil
+	return CommandResult{}, fmt.Errorf("execute run_command: run command: %w", runErr)
 }

@@ -152,19 +152,15 @@ func TestAppendAndRestoreSessionFile(t *testing.T) {
 		{Role: "tool", ToolResults: []ToolResult{{ToolCallID: "call_1", Content: "found"}}},
 		{Role: "assistant", Content: "found it", RawMessage: json.RawMessage(`{"role":"assistant","content":"found it"}`)},
 	}
-	if err := created.appendRunCommit(firstRun, 12, verificationState{HasUnverifiedChange: true}); err != nil {
+	if err := created.appendRunCommit(firstRun, 12); err != nil {
 		t.Fatalf("appendRunCommit() error = %v", err)
 	}
 
-	exitCode := 0
 	compacted := []Message{
 		{Role: "user", Content: summaryPrefix + validSummary()},
 		{Role: "assistant", Content: "continue", RawMessage: json.RawMessage(`{"role":"assistant","content":"continue"}`)},
 	}
-	verified := verificationState{
-		LastVerification: &verificationFact{Tool: "run_command", Command: "go test ./...", ExitCode: &exitCode},
-	}
-	if err := created.appendCompaction(compacted, 7, verified); err != nil {
+	if err := created.appendCompaction(compacted, 7); err != nil {
 		t.Fatalf("appendCompaction() error = %v", err)
 	}
 
@@ -172,7 +168,7 @@ func TestAppendAndRestoreSessionFile(t *testing.T) {
 		{Role: "user", Content: "next"},
 		{Role: "assistant", Content: "done", RawMessage: json.RawMessage(`{"role":"assistant","content":"done"}`)},
 	}
-	if err := created.appendRunCommit(secondRun, 10, verified); err != nil {
+	if err := created.appendRunCommit(secondRun, 10); err != nil {
 		t.Fatalf("appendRunCommit() second error = %v", err)
 	}
 
@@ -184,7 +180,7 @@ func TestAppendAndRestoreSessionFile(t *testing.T) {
 	if restoredFile != created {
 		t.Fatalf("restored file = %#v, want %#v", restoredFile, created)
 	}
-	if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 10 || !reflect.DeepEqual(state.verification, verified) {
+	if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 10 {
 		t.Fatalf("restored state = %#v", state)
 	}
 
@@ -221,7 +217,7 @@ func TestRestoreSessionFileSkipsIncompleteTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstRun := []Message{{Role: "user", Content: "first"}, {Role: "assistant", Content: "done"}}
-	if err := created.appendRunCommit(firstRun, 5, verificationState{}); err != nil {
+	if err := created.appendRunCommit(firstRun, 5); err != nil {
 		t.Fatal(err)
 	}
 	committed, err := os.ReadFile(created.path)
@@ -259,7 +255,7 @@ func TestRestoreSessionFileSkipsIncompleteTail(t *testing.T) {
 	}
 
 	secondRun := []Message{{Role: "user", Content: "second"}, {Role: "assistant", Content: "continued"}}
-	if err := restored.appendRunCommit(secondRun, 9, verificationState{}); err != nil {
+	if err := restored.appendRunCommit(secondRun, 9); err != nil {
 		t.Fatalf("append after restore: %v", err)
 	}
 	_, continued, err := restoreSessionFile(filepath.Dir(created.path), created.id, root)
@@ -300,7 +296,7 @@ func TestAppendSessionRecordErrors(t *testing.T) {
 			append: func() error {
 				missing := created
 				missing.path = filepath.Join(tempDir, "missing.jsonl")
-				return missing.appendRunCommit(nil, 1, verificationState{})
+				return missing.appendRunCommit(nil, 1)
 			},
 			wantErr: "open session file",
 		},
@@ -410,7 +406,7 @@ func TestRestoreSessionFileSkipsInvalidRecords(t *testing.T) {
 			created, sessionDir, root, _ := newSessionFixture(t)
 			appendSessionTestLine(t, created.path, test.line)
 			wantMessages := []Message{{Role: "user", Content: "after invalid record"}}
-			if err := created.appendRunCommit(wantMessages, 7, verificationState{}); err != nil {
+			if err := created.appendRunCommit(wantMessages, 7); err != nil {
 				t.Fatal(err)
 			}
 
@@ -430,20 +426,16 @@ func TestRestoreSessionFileSkipsIncompleteKnownRecords(t *testing.T) {
 		name string
 		line string
 	}{
-		{name: "run commit without messages", line: `{"type":"run_commit","tokenUsage":9,"verificationState":{"hasUnverifiedChange":false}}`},
-		{name: "run commit with null messages", line: `{"type":"run_commit","messages":null,"tokenUsage":9,"verificationState":{"hasUnverifiedChange":false}}`},
-		{name: "run commit without token usage", line: `{"type":"run_commit","messages":[],"verificationState":{"hasUnverifiedChange":false}}`},
-		{name: "run commit without verification state", line: `{"type":"run_commit","messages":[],"tokenUsage":9}`},
-		{name: "compaction without replacement history", line: `{"type":"compaction","tokenUsage":9,"verificationState":{"hasUnverifiedChange":false}}`},
-		{name: "compaction without token usage", line: `{"type":"compaction","replacementHistory":[],"verificationState":{"hasUnverifiedChange":false}}`},
-		{name: "compaction without verification state", line: `{"type":"compaction","replacementHistory":[],"tokenUsage":9}`},
-		{name: "compaction with null verification state", line: `{"type":"compaction","replacementHistory":[],"tokenUsage":9,"verificationState":null}`},
+		{name: "run commit without messages", line: `{"type":"run_commit","tokenUsage":9}`},
+		{name: "run commit with null messages", line: `{"type":"run_commit","messages":null,"tokenUsage":9}`},
+		{name: "run commit without token usage", line: `{"type":"run_commit","messages":[]}`},
+		{name: "compaction without replacement history", line: `{"type":"compaction","tokenUsage":9}`},
+		{name: "compaction without token usage", line: `{"type":"compaction","replacementHistory":[]}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			created, sessionDir, root, _ := newSessionFixture(t)
 			wantMessages := []Message{{Role: "user", Content: "committed"}}
-			wantVerification := verificationState{HasUnverifiedChange: true}
-			if err := created.appendRunCommit(wantMessages, 7, wantVerification); err != nil {
+			if err := created.appendRunCommit(wantMessages, 7); err != nil {
 				t.Fatal(err)
 			}
 			appendSessionTestLine(t, created.path, test.line)
@@ -452,7 +444,7 @@ func TestRestoreSessionFileSkipsIncompleteKnownRecords(t *testing.T) {
 			if err != nil {
 				t.Fatalf("restoreSessionFile() error = %v", err)
 			}
-			if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 7 || !reflect.DeepEqual(state.verification, wantVerification) {
+			if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 7 {
 				t.Fatalf("restored state = %#v", state)
 			}
 		})
@@ -462,16 +454,16 @@ func TestRestoreSessionFileSkipsIncompleteKnownRecords(t *testing.T) {
 func TestRestoreSessionFileIgnoresUnknownFields(t *testing.T) {
 	created, sessionDir, root, _ := newSessionFixture(t)
 	wantMessages := []Message{{Role: "user", Content: "committed"}}
-	if err := created.appendRunCommit(wantMessages, 7, verificationState{}); err != nil {
+	if err := created.appendRunCommit(wantMessages, 7); err != nil {
 		t.Fatal(err)
 	}
-	appendSessionTestLine(t, created.path, `{"type":"run_commit","messages":[],"tokenUsage":9,"verificationState":{"hasUnverifiedChange":true,"futureState":true},"futureRecord":true}`)
+	appendSessionTestLine(t, created.path, `{"type":"run_commit","messages":[],"tokenUsage":9,"futureRecord":true}`)
 
 	_, state, err := restoreSessionFile(sessionDir, created.id, root)
 	if err != nil {
 		t.Fatalf("restoreSessionFile() error = %v", err)
 	}
-	if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 9 || !state.verification.HasUnverifiedChange {
+	if !reflect.DeepEqual(state.messages, wantMessages) || state.tokenUsage != 9 {
 		t.Fatalf("restored state = %#v", state)
 	}
 }
@@ -565,7 +557,7 @@ func TestSessionAgentPersistsCompaction(t *testing.T) {
 		t.Fatalf("newSessionAgent() error = %v", err)
 	}
 	runner.messages = compactableHistory()
-	if err := runner.sessionFile.appendRunCommit(runner.messages, 90, verificationState{}); err != nil {
+	if err := runner.sessionFile.appendRunCommit(runner.messages, 90); err != nil {
 		t.Fatalf("seed Session error = %v", err)
 	}
 
