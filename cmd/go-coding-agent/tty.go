@@ -50,9 +50,9 @@ func (output workingOutput) Write(content []byte) (int, error) {
 
 func formatWorkingStatus(seconds int) string {
 	if seconds < 60 {
-		return fmt.Sprintf("working %ds", seconds)
+		return fmt.Sprintf("working (%ds • esc to interrupt)", seconds)
 	}
-	return fmt.Sprintf("working %dmin %ds", seconds/60, seconds%60)
+	return fmt.Sprintf("working (%dmin %ds • esc to interrupt)", seconds/60, seconds%60)
 }
 
 func startWorkingStatus(output io.Writer) func() {
@@ -78,8 +78,8 @@ func startWorkingStatus(output io.Writer) func() {
 		stopOnce.Do(func() {
 			close(stop)
 			<-done
-			// Return to the line start and clear the working status.
-			_, _ = fmt.Fprint(output, "\r\x1b[2K")
+			// Clear the working status and start the response on the next line.
+			_, _ = fmt.Fprint(output, "\r\x1b[2K\n")
 		})
 	}
 }

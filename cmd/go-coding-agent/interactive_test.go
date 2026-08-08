@@ -30,10 +30,11 @@ func TestFormatWorkingStatus(t *testing.T) {
 		seconds int
 		want    string
 	}{
-		{seconds: 1, want: "working 1s"},
-		{seconds: 59, want: "working 59s"},
-		{seconds: 60, want: "working 1min 0s"},
-		{seconds: 173, want: "working 2min 53s"},
+		{seconds: 1, want: "working (1s • esc to interrupt)"},
+		{seconds: 59, want: "working (59s • esc to interrupt)"},
+		{seconds: 60, want: "working (1min 0s • esc to interrupt)"},
+		{seconds: 62, want: "working (1min 2s • esc to interrupt)"},
+		{seconds: 173, want: "working (2min 53s • esc to interrupt)"},
 	}
 	for _, test := range tests {
 		if got := formatWorkingStatus(test.seconds); got != test.want {
