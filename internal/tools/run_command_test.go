@@ -125,68 +125,6 @@ func TestRunCommandTimeout(t *testing.T) {
 	}
 }
 
-func TestFinishTask(t *testing.T) {
-	workspaceTools := NewWorkspaceTools()
-	workspaceTools.SetCommandApprover(func(_ context.Context, request CommandRequest) (bool, error) {
-		if request.Tool != "finish_task" {
-			t.Fatalf("approval tool = %q, want finish_task", request.Tool)
-		}
-		return true, nil
-	})
-	finish := findTool(t, workspaceTools, "finish_task")
-
-	output, err := finish.Execute(context.Background(), t.TempDir(), helperFinishTaskArguments("exit"))
-	if err != nil {
-		t.Fatalf("finish_task error = %v", err)
-	}
-	var result FinishTaskResult
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Result != "done" || result.Verification == nil || result.Verification.ExitCode != 7 || result.Verification.Stderr != "failed" {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestFinishTaskWithoutCommand(t *testing.T) {
-	finish := findTool(t, NewWorkspaceTools(), "finish_task")
-
-	output, err := finish.Execute(context.Background(), t.TempDir(), `{"result":"done"}`)
-	if err != nil {
-		t.Fatalf("finish_task error = %v", err)
-	}
-	var result FinishTaskResult
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Result != "done" || result.Verification != nil {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestFinishTaskValidatesArguments(t *testing.T) {
-	workspaceTools := NewWorkspaceTools()
-	workspaceTools.SetCommandApprover(func(context.Context, CommandRequest) (bool, error) {
-		t.Fatal("approver called for invalid arguments")
-		return false, nil
-	})
-	finish := findTool(t, workspaceTools, "finish_task")
-	tests := []struct {
-		arguments string
-		want      string
-	}{
-		{arguments: `{}`, want: "result is empty"},
-		{arguments: `{"result":"done","args":[]}`, want: "args requires command"},
-		{arguments: `{"result":"done","command":"go"}`, want: "args is required"},
-		{arguments: `{"result":"done","shell":true}`, want: "unknown field"},
-	}
-	for _, test := range tests {
-		if _, err := finish.Execute(context.Background(), t.TempDir(), test.arguments); err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Errorf("arguments %s error = %v, want %q", test.arguments, err, test.want)
-		}
-	}
-}
-
 func TestRunCommandValidatesArguments(t *testing.T) {
 	workspaceTools := NewWorkspaceTools()
 	workspaceTools.SetCommandApprover(func(context.Context, CommandRequest) (bool, error) {
@@ -211,18 +149,6 @@ func TestRunCommandValidatesArguments(t *testing.T) {
 
 func helperCommandArguments(mode string) string {
 	arguments, err := json.Marshal(CommandInput{
-		Command: os.Args[0],
-		Args:    []string{"-test.run=TestRunCommandHelperProcess", "--", mode},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return string(arguments)
-}
-
-func helperFinishTaskArguments(mode string) string {
-	arguments, err := json.Marshal(FinishTaskInput{
-		Result:  "done",
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestRunCommandHelperProcess", "--", mode},
 	})

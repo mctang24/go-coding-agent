@@ -79,16 +79,13 @@ func (current *runTrace) append(event trace.Event) error {
 	return current.writer.Append(event)
 }
 
-func (current *runTrace) finish(status RunStatus, runErr error, verification *verificationFact) error {
+func (current *runTrace) finish(status RunStatus, runErr error) error {
 	if current == nil {
 		return nil
 	}
 	data := map[string]any{"status": status}
 	if runErr != nil {
 		data["error"] = runErr.Error()
-	}
-	if verification != nil {
-		data["verification"] = verification
 	}
 	return current.append(trace.Event{
 		Timestamp:  time.Now().UTC(),

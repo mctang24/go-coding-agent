@@ -97,22 +97,12 @@ func (workspaceTools *WorkspaceTools) Definitions() []Tool {
 		},
 		{
 			Name:        "run_command",
-			Description: "Run a program directly in the agent working directory for diagnosis or intermediate work while the task is not ready to finish. When the work is complete, pass the final check directly to finish_task; do not run the same check here first. Shell syntax, custom working directories, environment changes, background processes, and interactive commands are not supported.",
+			Description: "Run a program directly in the agent working directory for diagnosis or final verification. Shell syntax, custom working directories, environment changes, background processes, and interactive commands are not supported.",
 			Parameters: ObjectSchema(map[string]Schema{
 				"command": StringSchema("Executable name or path."),
 				"args":    ArraySchema(StringSchema(""), "Arguments passed directly to the executable."),
 			}, "command", "args"),
 			Execute: workspaceTools.executeRunCommand,
-		},
-		{
-			Name:        "finish_task",
-			Description: "Declare the task complete and provide the final response. If files changed or run_command started, command and args are required for the final test, build, lint, or other completion check. When the work is ready, call finish_task directly with that check; do not run the same check with run_command first. A successful check ends the task; a failed check is returned so work can continue. Call finish_task alone, never with other tools.",
-			Parameters: ObjectSchema(map[string]Schema{
-				"result":  StringSchema("Final response returned to the user after successful completion."),
-				"command": StringSchema("Optional completion-check executable name or path."),
-				"args":    ArraySchema(StringSchema(""), "Arguments passed directly to the optional completion-check executable."),
-			}, "result"),
-			Execute: workspaceTools.executeFinishTask,
 		},
 	}
 }

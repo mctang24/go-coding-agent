@@ -48,6 +48,13 @@ func (output workingOutput) Write(content []byte) (int, error) {
 	return output.output.Write(content)
 }
 
+func formatWorkingStatus(seconds int) string {
+	if seconds < 60 {
+		return fmt.Sprintf("working %ds", seconds)
+	}
+	return fmt.Sprintf("working %dmin %ds", seconds/60, seconds%60)
+}
+
 func startWorkingStatus(output io.Writer) func() {
 	startedAt := time.Now()
 	stop := make(chan struct{})
@@ -61,7 +68,7 @@ func startWorkingStatus(output io.Writer) func() {
 			select {
 			case now := <-ticker.C:
 				seconds := int(now.Sub(startedAt).Seconds())
-				_, _ = fmt.Fprintf(output, "\rworking %ds", seconds)
+				_, _ = fmt.Fprintf(output, "\r%s", formatWorkingStatus(seconds))
 			case <-stop:
 				return
 			}

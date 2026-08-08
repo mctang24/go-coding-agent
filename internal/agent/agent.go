@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/goccy/go-json"
-
 	"go-coding-agent/internal/tools"
 	"go-coding-agent/internal/trace"
 )
@@ -21,19 +19,17 @@ const interruptedMessage = "<turn_aborted>\nThe user interrupted the previous tu
 var ErrRunInterrupted = errors.New("run interrupted by user")
 
 type Agent struct {
-	root                string
-	tools               []tools.Tool
-	model               Model
-	instructions        string
-	maxTurns            int
-	messages            []Message
-	tokenUsage          int
-	traceWriter         *trace.Writer
-	sessionID           string
-	sessionFile         *sessionFile
-	workspaceTools      *tools.WorkspaceTools
-	hasUnverifiedChange bool
-	lastVerification    *verificationFact
+	root           string
+	tools          []tools.Tool
+	model          Model
+	instructions   string
+	maxTurns       int
+	messages       []Message
+	tokenUsage     int
+	traceWriter    *trace.Writer
+	sessionID      string
+	sessionFile    *sessionFile
+	workspaceTools *tools.WorkspaceTools
 }
 
 // EnableTrace enables JSONL tracing for the agent session.
@@ -61,7 +57,6 @@ type RunStatus string
 
 const (
 	RunStatusSuccess     RunStatus = "success"
-	RunStatusIncomplete  RunStatus = "incomplete"
 	RunStatusInterrupted RunStatus = "interrupted"
 	RunStatusError       RunStatus = "error"
 )
@@ -123,12 +118,10 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			result.Status = RunStatusInterrupted
 		case runErr != nil:
 			result.Status = RunStatusError
-		case agent.hasUnverifiedChange:
-			result.Status = RunStatusIncomplete
 		default:
 			result.Status = RunStatusSuccess
 		}
-		if err := currentTrace.finish(result.Status, runErr, agent.lastVerification); err != nil {
+		if err := currentTrace.finish(result.Status, runErr); err != nil {
 			reportTraceError("run_end", err)
 		}
 	}()
@@ -204,7 +197,7 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 			return RunResult{Content: response.Message.Content}, nil
 		}
 
-		toolResults, completed, err := agent.executeToolRound(ctx, response.Message.ToolCalls, currentTrace, turn+1)
+		toolResults, err := agent.executeToolRound(ctx, response.Message.ToolCalls, currentTrace, turn+1)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -219,14 +212,6 @@ func (agent *Agent) Run(ctx context.Context, task string, onTextDelta TextDeltaH
 		committedMessageCount = len(messages)
 		if interrupted {
 			return RunResult{}, nil
-		}
-		if completed != nil {
-			if onTextDelta != nil {
-				if err := onTextDelta(completed.Result); err != nil {
-					return RunResult{}, fmt.Errorf("agent run: write finish_task result: %w", err)
-				}
-			}
-			return RunResult{Content: completed.Result}, nil
 		}
 	}
 
@@ -243,11 +228,7 @@ func isRunInterrupted(ctx context.Context) bool {
 
 func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) error {
 	if agent.sessionFile != nil {
-		verification := verificationState{
-			HasUnverifiedChange: agent.hasUnverifiedChange,
-			LastVerification:    agent.lastVerification,
-		}
-		if err := agent.sessionFile.appendRunCommit(newMessages, tokenUsage, verification); err != nil {
+		if err := agent.sessionFile.appendRunCommit(newMessages, tokenUsage, verificationState{}); err != nil {
 			return fmt.Errorf("persist session: %w", err)
 		}
 	}
@@ -256,32 +237,12 @@ func (agent *Agent) commitRun(newMessages, messages []Message, tokenUsage int) e
 	return nil
 }
 
-func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, current *runTrace, turn int) ([]ToolResult, *tools.FinishTaskResult, error) {
+func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, current *runTrace, turn int) ([]ToolResult, error) {
 	if isRunInterrupted(ctx) {
-		return rejectedToolResults(calls, "aborted by user"), nil, nil
+		return rejectedToolResults(calls, "aborted by user"), nil
 	}
-	if hasMixedFinishTask(calls) {
-		return rejectedToolResults(calls, "finish_task must be the only tool call in a response"), nil, nil
-	}
-
-	if len(calls) == 1 && calls[0].Name == "finish_task" {
-		result, err := agent.callTool(ctx, calls[0], current, turn)
-		if err != nil {
-			return nil, nil, err
-		}
-		if result.IsError {
-			return []ToolResult{result}, nil, nil
-		}
-
-		var completed tools.FinishTaskResult
-		if err := json.Unmarshal([]byte(result.Content), &completed); err != nil {
-			return nil, nil, fmt.Errorf("agent run: decode finish_task result: %w", err)
-		}
-		return []ToolResult{result}, &completed, nil
-	}
-
 	if turn == agent.maxTurns {
-		return nil, nil, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
+		return nil, fmt.Errorf("agent run: reached maximum of %d turns", agent.maxTurns)
 	}
 
 	results := make([]ToolResult, 0, len(calls))
@@ -292,23 +253,11 @@ func (agent *Agent) executeToolRound(ctx context.Context, calls []ToolCall, curr
 		}
 		result, err := agent.callTool(ctx, call, current, turn)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		results = append(results, result)
 	}
-	return results, nil, nil
-}
-
-func hasMixedFinishTask(calls []ToolCall) bool {
-	if len(calls) < 2 {
-		return false
-	}
-	for _, call := range calls {
-		if call.Name == "finish_task" {
-			return true
-		}
-	}
-	return false
+	return results, nil
 }
 
 func rejectedToolResults(calls []ToolCall, content string) []ToolResult {
@@ -449,8 +398,6 @@ func (agent *Agent) Reset() error {
 	}
 	agent.messages = nil
 	agent.tokenUsage = 0
-	agent.hasUnverifiedChange = false
-	agent.lastVerification = nil
 	if agent.workspaceTools != nil {
 		agent.workspaceTools.ResetReadState()
 	}

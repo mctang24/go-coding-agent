@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cogentcore/readline"
+	"github.com/reeflective/readline"
 	"golang.org/x/term"
 
 	"go-coding-agent/internal/agent"
@@ -44,25 +44,15 @@ func runTask(ctx context.Context, runner *agent.Agent, task string, output io.Wr
 
 // runInteractive runs an in-memory conversation until the user exits.
 func runInteractive(ctx context.Context, runner *agent.Agent, fd int, output io.Writer) error {
-	input := os.NewFile(uintptr(fd), "stdin")
-	lineReader, err := readline.NewFromConfig(&readline.Config{
-		Prompt:          "> ",
-		Stdin:           input,
-		Stdout:          output,
-		Stderr:          output,
-		InterruptPrompt: "\n",
-		HistoryLimit:    -1,
-	})
-	if err != nil {
-		return fmt.Errorf("initialize line editor: %w", err)
-	}
-	defer func() { _ = lineReader.Close() }()
+	lineReader := readline.NewShell()
+	_ = lineReader.Config.Set("enable-bracketed-paste", true)
+	lineReader.Prompt.Primary(func() string { return "> " })
 
 	for {
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
-		task, err := lineReader.ReadLine()
+		task, err := lineReader.Readline()
 		if err != nil {
 			if errors.Is(err, readline.ErrInterrupt) {
 				return agent.ErrRunInterrupted
@@ -111,8 +101,6 @@ func runInteractive(ctx context.Context, runner *agent.Agent, fd int, output io.
 		switch result.Status {
 		case agent.RunStatusInterrupted:
 			fmt.Fprintln(output, "interrupted")
-		case agent.RunStatusIncomplete:
-			fmt.Fprintln(output, "task incomplete: completion was not confirmed or changes are not verified")
 		}
 	}
 }

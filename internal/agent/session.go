@@ -30,6 +30,14 @@ type sessionFile struct {
 	rootPath string
 }
 
+// verificationFact is retained for replaying older Session records.
+type verificationFact struct {
+	Tool     string `json:"tool"`
+	Command  string `json:"command"`
+	ExitCode *int   `json:"exitCode,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
 type verificationState struct {
 	HasUnverifiedChange bool              `json:"hasUnverifiedChange"`
 	LastVerification    *verificationFact `json:"lastVerification,omitempty"`
@@ -85,8 +93,6 @@ func newSessionAgent(sessionDir, root string, model Model, instructions, session
 	runner.sessionID = file.id
 	runner.messages = state.messages
 	runner.tokenUsage = state.tokenUsage
-	runner.hasUnverifiedChange = state.verification.HasUnverifiedChange
-	runner.lastVerification = state.verification.LastVerification
 	return runner, nil
 }
 

@@ -162,7 +162,7 @@ func TestAppendAndRestoreSessionFile(t *testing.T) {
 		{Role: "assistant", Content: "continue", RawMessage: json.RawMessage(`{"role":"assistant","content":"continue"}`)},
 	}
 	verified := verificationState{
-		LastVerification: &verificationFact{Tool: "finish_task", Command: "go test ./...", ExitCode: &exitCode},
+		LastVerification: &verificationFact{Tool: "run_command", Command: "go test ./...", ExitCode: &exitCode},
 	}
 	if err := created.appendCompaction(compacted, 7, verified); err != nil {
 		t.Fatalf("appendCompaction() error = %v", err)
@@ -487,9 +487,6 @@ func TestSessionAgentRestoresAndContinues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSessionAgent() error = %v", err)
 	}
-	exitCode := 0
-	created.hasUnverifiedChange = true
-	created.lastVerification = &verificationFact{Tool: "finish_task", ExitCode: &exitCode}
 	if _, err := created.Run(context.Background(), "first question", nil); err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
@@ -502,7 +499,7 @@ func TestSessionAgentRestoresAndContinues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore newSessionAgent() error = %v", err)
 	}
-	if restored.tokenUsage != 12 || len(restored.messages) != 2 || !restored.hasUnverifiedChange || !reflect.DeepEqual(restored.lastVerification, created.lastVerification) {
+	if restored.tokenUsage != 12 || len(restored.messages) != 2 {
 		t.Fatalf("restored state = messages %#v, token usage %d", restored.messages, restored.tokenUsage)
 	}
 	if _, err := restored.Run(context.Background(), "second question", nil); err != nil {
@@ -551,8 +548,8 @@ func TestSessionAgentRestoresCompletedToolRoundAfterModelFailure(t *testing.T) {
 	if len(restored.messages) != 3 || restored.messages[0].Content != "create file" || restored.messages[2].ToolResults[0].Content != `{"path":"created.txt"}` {
 		t.Fatalf("restored messages = %#v", restored.messages)
 	}
-	if restored.tokenUsage != 31 || !restored.hasUnverifiedChange || restored.lastVerification != nil {
-		t.Fatalf("restored state = token usage %d, unverified %t, verification %#v", restored.tokenUsage, restored.hasUnverifiedChange, restored.lastVerification)
+	if restored.tokenUsage != 31 {
+		t.Fatalf("restored state = token usage %d", restored.tokenUsage)
 	}
 }
 

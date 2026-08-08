@@ -25,6 +25,23 @@ func TestWorkingOutputStopsBeforeOutput(t *testing.T) {
 	}
 }
 
+func TestFormatWorkingStatus(t *testing.T) {
+	tests := []struct {
+		seconds int
+		want    string
+	}{
+		{seconds: 1, want: "working 1s"},
+		{seconds: 59, want: "working 59s"},
+		{seconds: 60, want: "working 1min 0s"},
+		{seconds: 173, want: "working 2min 53s"},
+	}
+	for _, test := range tests {
+		if got := formatWorkingStatus(test.seconds); got != test.want {
+			t.Fatalf("formatWorkingStatus(%d) = %q, want %q", test.seconds, got, test.want)
+		}
+	}
+}
+
 type interactiveModel struct {
 	responses []agent.ModelResponse
 }

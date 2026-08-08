@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/goccy/go-json"
 	"os/exec"
 	"time"
+
+	"github.com/goccy/go-json"
 )
 
 const (
@@ -22,17 +23,6 @@ type CommandResult struct {
 	ExitCode int    `json:"exit_code"`
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
-}
-
-type FinishTaskInput struct {
-	Result  string   `json:"result"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-}
-
-type FinishTaskResult struct {
-	Result       string         `json:"result"`
-	Verification *CommandResult `json:"verification,omitempty"`
 }
 
 // CommandExecutionError reports a failure after the command process started.
@@ -58,31 +48,6 @@ func (workspaceTools *WorkspaceTools) executeRunCommand(ctx context.Context, roo
 		return "", err
 	}
 	return encodeResult("run_command", result)
-}
-
-func (workspaceTools *WorkspaceTools) executeFinishTask(ctx context.Context, root, arguments string) (string, error) {
-	var input FinishTaskInput
-	if err := decodeArguments(arguments, &input); err != nil {
-		return "", fmt.Errorf("execute finish_task: decode arguments: %w", err)
-	}
-	if input.Result == "" {
-		return "", fmt.Errorf("execute finish_task: result is empty")
-	}
-	if input.Command == "" {
-		if input.Args != nil {
-			return "", fmt.Errorf("execute finish_task: args requires command")
-		}
-		return encodeResult("finish_task", FinishTaskResult{Result: input.Result})
-	}
-
-	verification, err := workspaceTools.runCommand(ctx, root, "finish_task", CommandInput{
-		Command: input.Command,
-		Args:    input.Args,
-	})
-	if err != nil {
-		return "", err
-	}
-	return encodeResult("finish_task", FinishTaskResult{Result: input.Result, Verification: &verification})
 }
 
 func (workspaceTools *WorkspaceTools) runCommand(ctx context.Context, root, toolName string, input CommandInput) (CommandResult, error) {

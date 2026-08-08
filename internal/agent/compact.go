@@ -131,11 +131,7 @@ func (agent *Agent) Compact(ctx context.Context) error {
 		return fmt.Errorf("compact history: estimate compacted context: %w", err)
 	}
 	if agent.sessionFile != nil {
-		verification := verificationState{
-			HasUnverifiedChange: agent.hasUnverifiedChange,
-			LastVerification:    agent.lastVerification,
-		}
-		if err := agent.sessionFile.appendCompaction(messages, tokenUsage, verification); err != nil {
+		if err := agent.sessionFile.appendCompaction(messages, tokenUsage, verificationState{}); err != nil {
 			return fmt.Errorf("compact history: persist session: %w", err)
 		}
 	}
